@@ -1,0 +1,11 @@
+{
+  "name": "BrewLite Coffee & Tea",
+  "short_name": "BrewLite",
+  "description": "Ứng dụng đặt nước Mobile-first / PWA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6f4e37",
+  "icons": []
+}
+

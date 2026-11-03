@@ -1,0 +1,29 @@
+{
+  "name": "brewlite-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:web": "npm run dev --workspace=@brewlite/web",
+    "dev:api": "npm run start:dev --workspace=@brewlite/api",
+    "build": "npm run build --workspaces --if-present",
+    "build:web": "npm run build --workspace=@brewlite/web",
+    "build:api": "npm run build --workspace=@brewlite/api",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "db:generate": "npm run prisma:generate --workspace=@brewlite/api",
+    "db:migrate": "npm run prisma:migrate --workspace=@brewlite/api",
+    "db:seed": "npm run prisma:seed --workspace=@brewlite/api"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "concurrently": "^9.0.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  }
+}
+
