@@ -1,0 +1,48 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Khách hàng" as Customer
+actor "Nhân viên quầy" as Staff
+actor "Hệ thống Thanh toán" as PaymentSystem
+
+rectangle "Hệ thống Đặt đồ uống BrewLite" {
+usecase "Xem thực đơn (Menu)" as UC_Menu
+usecase "Xem chi tiết & Tùy chọn món" as UC_Detail
+usecase "Quản lý giỏ hàng" as UC_Cart
+usecase "Đăng nhập" as UC_Login
+usecase "Đặt và thanh toán đơn hàng" as UC_Checkout
+usecase "Theo dõi trạng thái đơn hàng" as UC_TrackOrder
+usecase "Xem lịch sử đơn hàng" as UC_OrderHistory
+usecase "Xử lý giao dịch thanh toán" as UC_ProcessPayment
+usecase "Cập nhật trạng thái đơn (Quầy)" as UC_UpdateOrderStatus
+usecase "Quản lý món & Tồn kho" as UC_InventoryManagement
+
+' Quan hệ extend / include nội bộ usecase
+UC_Detail .> UC_Menu : <<extend>>
+UC_Cart .> UC_Detail : <<extend>>
+UC_Checkout ..> UC_Login : <<include>>
+UC_Checkout ..> UC_ProcessPayment : <<include>>
+UC_TrackOrder .> UC_Checkout : <<extend>>
+
+
+}
+
+' Liên kết Actor Khách hàng
+Customer -- UC_Menu
+Customer -- UC_Detail
+Customer -- UC_Cart
+Customer -- UC_Login
+Customer -- UC_Checkout
+Customer -- UC_TrackOrder
+Customer -- UC_OrderHistory
+
+' Liên kết Actor Nhân viên quầy
+Staff -- UC_UpdateOrderStatus
+Staff -- UC_InventoryManagement
+
+' Liên kết Actor Hệ thống thanh toán
+PaymentSystem -- UC_ProcessPayment
+
+@enduml
