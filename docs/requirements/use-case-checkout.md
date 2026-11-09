@@ -100,7 +100,7 @@
   4. Next.js UI giữ nguyên các món còn lại trong giỏ hàng, đánh dấu đỏ các món hết hàng và hiển thị thông báo: *"Một số sản phẩm trong giỏ đã hết hàng hoặc không đủ số lượng. Vui lòng cập nhật lại giỏ hàng"*.
 * **Kết thúc:** Luồng use-case kết thúc, khách hàng ở lại màn hình giỏ hàng để chỉnh sửa món.
 
-### EF-03: Giao dịch thanh toán bị từ chối hoặc thất bại (Khớp nhánh `<<extend>>` Xử lý thanh toán lỗi)
+### 3: Giao dịch thanh toán bị từ chối hoặc thất bại (Khớp nhánh `<<extend>>` Xử lý thanh toán lỗi)
 * **Điểm phát sinh:** Tại Bước 9, Payment Service từ chối thanh toán (ví dụ: tài khoản mô phỏng không đủ số dư, thông tin thẻ không hợp lệ).
 * **Hệ thống xử lý:**
   1. Payment Service trả về trạng thái `FAILED` kèm mã lý do lỗi cho NestJS API.
@@ -130,7 +130,7 @@
 | :--- | :--- | :--- | :--- |
 | **Bước 1, 2** | - **FR-03** (Giỏ hàng)<br>- **FR-04** (Xác thực) | Kiểm tra điều kiện tiên quyết khi nhấn Checkout. | - Giỏ hàng rỗng (`items: []`): Nút Checkout bị vô hiệu hóa (disabled).<br>- Chưa có JWT Token: Client tự động chuyển hướng về `/login`. |
 | **Bước 5** | - **FR-05** (Đặt đơn)<br>- **NFR-02** (Bảo mật) | Validate payload của request `POST /orders`. | - Trả về HTTP $400\text{ Bad Request}$ nếu $\text{quantity} < 1$ hoặc trùng topping trong $1$ món.<br>- Trả về HTTP $401\text{ Unauthorized}$ nếu JWT header bị thiếu/giả mạo. |
-| **Bước 6** | - **FR-05** (Đặt đơn & Tồn kho)<br>- **NFR-01** (Hiệu năng) | Tạo đơn hàng trong DB Transaction khi kho đủ vs. kho hết (Concurrency Test). | - **Đủ tồn kho:** Tạo Order có status = `PENDING`, trừ tồn kho chính xác, phản hồi trong $< 1000\text{ms}$.<br>- **Hết tồn kho (EF-02):** Rollback $100\%$, trả về HTTP $409\text{ Conflict}$, tồn kho trong DB không đổi. |
+| **Bước 6** | - **FR-05** (Đặt đơn & Tồn kho)<br>- **NFR-01** (Hiệu năng) | Tạo đơn hàng trong DB Transaction khi kho đủ vs. kho hết (Concurrency Test). | - **Đủ tồn kho:** Tạo Order có status = `PENDING`, trừ tồn kho chính xác, phản hồi trong $< 500\text{ms}$.<br>- **Hết tồn kho (EF-02):** Rollback $100\%$, trả về HTTP $409\text{ Conflict}$, tồn kho trong DB không đổi. |
 | **Bước 7, 8** | - **FR-06** (Thanh toán & Idempotency) | Gửi đồng thời $2$ request thanh toán cùng `Idempotency-Key` (Unit/Integration Test). | - **Request đầu tiên:** Tạo bản ghi Payment `PENDING` và gọi Payment Service.<br>- **Request thứ hai:** Nhận lại kết quả cũ, DB chỉ tồn tại duy nhất $01$ giao dịch thanh toán thành công, không bị trừ tiền $2$ lần. |
 | **Bước 9, 10** | - **FR-06** (Thanh toán)<br>- **FR-08** (Quản lý trạng thái) | Xử lý kết quả trả về từ Payment Service (Mock Gateway). | - **Thanh toán SUCCESS:** Order chuyển sang `PAID`, Payment chuyển sang `SUCCESS`, cộng điểm vào `LoyaltyTransaction`.<br>- **Thanh toán FAILED (EF-03):** Order chuyển sang `PAYMENT_FAILED`, hoàn trả tồn kho sản phẩm nguyên trạng. |
 | **Bước 11** | - **FR-07** (Xác nhận đơn)<br>- **NFR-03** (Tính khả dụng PWA) | Làm trống giỏ hàng và chuyển hướng trên giao diện Next.js (E2E Test). | - `localStorage` giỏ hàng bị xóa rỗng hoàn toàn.<br>- URL chuyển hướng sang `/orders/tracking/[orderId]` hiển thị đúng mã nhận nước và mã QR nhận món. |
