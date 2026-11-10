@@ -1,0 +1,149 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam monochrome false
+skinparam shadowing false
+skinparam defaultFontName Arial
+
+title Class Diagram - Hệ thống Đặt hàng & Quản lý Kho
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PREPARING
+  COMPLETED
+  CANCELLED
+  PAYMENT_FAILED
+}
+
+enum ProductSize {
+  S
+  M
+  L
+}
+
+enum PaymentMethod {
+  WALLET
+  CARD
+}
+
+enum PaymentStatus {
+  SUCCEEDED
+  FAILED
+}
+
+enum IngredientUnit {
+  GRAM
+  ML
+}
+
+class User {
+  - id : String
+  - email : String
+  - passwordHash : String
+  - loyaltyPoints : Int
+  - createdAt : DateTime
+}
+
+class LoyaltyTransaction {
+  - id : String
+  - points : Int
+  - description : String
+  - createdAt : DateTime
+}
+
+class Order {
+  - id : String
+  - status : OrderStatus
+  - subtotal : Decimal
+  - discountAmount : Decimal
+  - total : Decimal
+  - createdAt : DateTime
+  + calculateTotal() : Decimal
+  + assertTransition(nextStatus: OrderStatus) : void
+}
+
+class OrderItem {
+  - id : String
+  - size : ProductSize
+  - quantity : Int
+  - lineTotal : Decimal
+  + calculateLineTotal() : Decimal
+}
+
+class Product {
+  - id : String
+  - name : String
+  - price : Decimal
+  - imageUrl : String
+  - isAvailable : Boolean
+  + isAvailable(qty: Int) : Boolean
+  + getMaxAvailableQuantity() : Int
+}
+
+class Topping {
+  - id : String
+  - name : String
+  - price : Decimal
+  - imageUrl : String
+  - isAvailable : Boolean
+}
+
+class Payment {
+  - id : String
+  - idempotencyKey : String
+  - amount : Decimal
+  - method : PaymentMethod
+  - status : PaymentStatus
+  - createdAt : DateTime
+}
+
+class Promotion {
+  - id : String
+  - code : String
+  - discountValue : Decimal
+  - minOrderAmount : Decimal = 0
+  - validFrom : DateTime
+  - validUntil : DateTime
+  - usageLimit : Int
+  - usedCount : Int
+  - isActive : Boolean
+  + isValid(orderSubtotal: Decimal, now: DateTime) : Boolean
+  + calculateDiscount(orderSubtotal: Decimal) : Decimal
+}
+
+class RecipeItem {
+  - id : String
+  - quantityRequired : Decimal
+}
+
+class Ingredient {
+  - id : String
+  - name : String
+  - unit : IngredientUnit
+  - stockQuantity : Decimal
+  - minThreshold : Decimal
+  - version : Int
+}
+
+' Quan hệ thực thể
+User "1" <-- "0..*" LoyaltyTransaction : Tích lũy >
+User "1" <-- "0..*" Order : Đặt >
+Order "1" *-- "0..*" LoyaltyTransaction : Phát sinh >
+Order "1" *-- "1..*" OrderItem : Bao gồm >
+Order "0..*" --> "0..1" Promotion : Áp dụng >
+Order "1" -- "1" Payment : Thanh toán qua >
+
+OrderItem "0..*" --> "1" Product : Có >
+OrderItem "0..*" -- "0..*" Topping : Có >
+
+Product "1" *-- "1..*" RecipeItem : Có >
+RecipeItem "1..*" -- "1" Ingredient : Có >
+
+' Liên kết Enum
+Order ..> OrderStatus
+OrderItem ..> ProductSize
+Payment ..> PaymentMethod
+Payment ..> PaymentStatus
+Ingredient ..> IngredientUnit
+
+@enduml

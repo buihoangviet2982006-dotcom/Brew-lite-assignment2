@@ -1,0 +1,91 @@
+@startuml
+skinparam style strictuml
+skinparam responseMessageBelowArrow false
+skinparam maxMessageSize 250
+skinparam boxPadding 10
+skinparam participantPadding 15
+
+actor "Customer" as Customer
+participant "Next.js UI" as UI
+participant "Nest.js API" as API
+database "Database" as DB
+participant "Payment service" as Payment
+
+Customer -> UI: [01] 1. Nhấn "Tiến hành đặt đơn" & "Thanh toán ngay"
+activate Customer
+activate UI
+
+UI -> API: [02] POST /orders\n(Bearer JWT, Items, Size, Topping)
+activate API
+
+API -> API: [03] Xác thực JWT &\nValidate dữ liệu
+
+alt JWT lỗi hoặc dữ liệu không hợp lệ
+    API --> UI: [04] 401 Unauthorized / 400 Bad Request
+    UI --> Customer: [05] Yêu cầu đăng nhập hoặc kiểm tra lại giỏ
+else Hợp lệ
+    API -> DB: [06] BEGIN TRANSACTION\nKiểm tra tồn kho (Optimistic Locking)
+    activate DB
+    
+    alt Sản phẩm hết hàng (Out of Stock)
+        DB --> API: [07] Tồn kho không đủ
+        API -> DB: [08] ROLLBACK
+        API --> UI: [09] 409 Conflict (Món đã hết hàng)
+        UI --> Customer: [10] Báo lỗi hết hàng & yêu cầu sửa giỏ
+    else Còn đủ tồn kho
+        API -> DB: [11] Trừ tồn kho, Tạo Order (PENDING)\nvà OrderItem -> COMMIT
+        DB --> API: [12] Order Created (orderId)
+        deactivate DB
+        
+        API --> UI: [13] 201 Created (orderId, status: PENDING)
+        deactivate API
+        
+        UI -> UI: [14] Sinh Idempotency-Key
+        
+        UI -> API: [15] POST /payments\n(Idempotency-Key, orderId, method)
+        activate API
+        
+        API -> DB: [16] Kiểm tra Idempotency-Key
+        activate DB
+        
+        alt Idempotency-Key đã xử lý trước đó
+            DB --> API: [17] Trả về kết quả giao dịch cũ
+            deactivate DB
+            API --> UI: [18] 200 OK (Kết quả thanh toán cũ)
+        else Key mới hoàn toàn
+            API -> DB: [19] Tạo bản ghi Payment (PENDING)
+            activate DB
+            deactivate DB
+            
+            API -> Payment: [20] Gửi lệnh thu tiền\n(orderId, amount, Idempotency-Key)
+            activate Payment
+            
+            alt Thanh toán thành công (SUCCESS)
+                Payment --> API: [21] 200 OK (SUCCESS, transactionRef)
+                API -> DB: [22] BEGIN TRANSACTION\n- Payment -> SUCCESS\n- Order -> PAID\n- Cộng điểm LoyaltyTransaction\nCOMMIT
+                activate DB
+                DB --> API: [23] Cập nhật thành công
+                deactivate DB
+                
+                API --> UI: [24] 200 OK (Order PAID, QR Code)
+                UI -> UI: [25] Làm trống Giỏ hàng
+                UI --> Customer: [26] Hiển thị xác nhận & Theo dõi đơn
+            else Thanh toán thất bại (FAILED / Timeout)
+                Payment --> API: [27] 400 Failed / Timeout
+                deactivate Payment
+                API -> DB: [28] BEGIN TRANSACTION\n- Payment -> FAILED\n- Order -> PAYMENT_FAILED\n- Hoàn trả tồn kho & Voucher\nCOMMIT
+                activate DB
+                DB --> API: [29] Rollback hoàn tất
+                deactivate DB
+                
+                API --> UI: [30] 400 Bad Request (Thanh toán lỗi)
+                UI --> Customer: [31] Báo lỗi & giữ nguyên giỏ hàng
+            end
+        end
+        deactivate API
+    end
+end
+
+deactivate UI
+deactivate Customer
+@enduml
