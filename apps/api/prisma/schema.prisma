@@ -7,3 +7,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum IngredientUnit {
+  GRAM
+  ML
+}
+
+model Product {
+  id          String       @id @default(uuid())
+  name        String
+  price       Decimal      @db.Decimal(10, 2)
+  imageUrl    String?      @map("image_url")
+  isAvailable Boolean      @default(true) @map("is_available")
+  recipeItems RecipeItem[]
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("products")
+}
+
+model Ingredient {
+  id            String         @id @default(uuid())
+  name          String
+  unit          IngredientUnit
+  stockQuantity Decimal        @default(0) @map("stock_quantity") @db.Decimal(10, 2)
+  minThreshold  Decimal        @default(0) @map("min_threshold") @db.Decimal(10, 2)
+  version       Int            @default(1)
+  recipeItems   RecipeItem[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@map("ingredients")
+}
+
+model RecipeItem {
+  id               String     @id @default(uuid())
+  productId        String     @map("product_id")
+  product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredientId     String     @map("ingredient_id")
+  ingredient       Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  quantityRequired Decimal    @map("quantity_required") @db.Decimal(10, 2)
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  @@unique([productId, ingredientId])
+  @@map("recipe_items")
+}
