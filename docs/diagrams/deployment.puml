@@ -1,0 +1,152 @@
+@startuml
+' =========================================================================
+' CẤU HÌNH KHỐI 3D UML CHUẨN & THU GỌN CHIỀU NGANG (TOP TO BOTTOM)
+' =========================================================================
+top to bottom direction
+skinparam shadowing true
+skinparam componentStyle uml2
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 11
+skinparam nodesep 25
+skinparam ranksep 35
+
+skinparam node {
+    BackgroundColor #FFFFFF
+    BorderColor #333333
+}
+skinparam component {
+    BackgroundColor #F8F9FA
+    BorderColor #495057
+}
+skinparam artifact {
+    BackgroundColor #FFF9DB
+    BorderColor #F08C00
+}
+skinparam database {
+    BackgroundColor #EBFBEE
+    BorderColor #2B8A3E
+}
+
+title UML Deployment Diagram (3D) - Hệ thống BrewLite (Vercel + Render + Docker Hub + SePay/VietQR)
+
+' =========================================================================
+' TẦNG 1: THIẾT BỊ NGƯỜI DÙNG + MÔI TRƯỜNG CI/CD + MÔI TRƯỜNG LOCAL
+' =========================================================================
+together {
+    node "Node: Thiết bị người dùng (Browser/PWA)\n[iOS / Android / Desktop]" as UserDevice #E7F5FF {
+        artifact "manifest.json & icons\n(standalone, start_url: '/menu')" as Manifest
+        component "Service Worker (public/sw.js)\n[Cache Static & App Shell]" as ServiceWorker
+        component "Mobile-first UI & Client Store\n- cart.store.ts & auth.store.ts\n- price-calculator.ts\n- idempotency.ts (UUID Key)" as ClientApp
+        component "HTTP Client (api-client.ts)\n[Bearer JWT & Idempotency-Key]" as ApiClient
+        
+        ServiceWorker -[hidden]down- ClientApp
+        ClientApp -down-> ApiClient : Gọi dịch vụ
+    }
+
+    node "Ranh giới: Môi trường CI/CD\n(GitHub Actions + Docker Hub)" as CIBoundary #FFF4E6 {
+        artifact "GitHub Secrets\n(DOCKERHUB_TOKEN,\nRENDER_WEBHOOK)" as GHSecrets
+        component "GitHub Actions Pipeline\n1. Install -> Lint -> Test (Jest)\n2. Build Image (apps/api/Dockerfile)\n3. Push lên Docker Hub\n4. Trigger Render Deploy Webhook" as GHRunner
+        database "Container Registry\nDocker Hub\n[brewlite-api:<sha>]" as DockerHub
+        
+        GHSecrets .down.> GHRunner : Cấp phát Secret
+        GHRunner -down-> DockerHub : Push Image\n(HTTPS:443)
+    }
+
+    node "Ranh giới: Môi trường Local\n(Docker Compose)" as LocalBoundary #F8F9FA {
+        component "Monorepo Local Dev\n- apps/web (:3000)\n- apps/api (:4000)\n- postgres-local (:5432)" as LocalStack
+        component "Test Suite (tests/)\n- Jest / RTL (Unit)\n- Playwright / Cypress (E2E)" as LocalTests
+        artifact ".env.local /\n.env.example" as LocalEnv
+        
+        LocalEnv .down.> LocalStack : Cấu hình
+        LocalTests .up.> LocalStack : Chạy Test
+    }
+}
+
+' =========================================================================
+' TẦNG 2 & 3: RANH GIỚI MÔI TRƯỜNG PRODUCTION & DỊCH VỤ BÊN THỨ 3
+' =========================================================================
+node "Ranh giới: Môi trường Production (Hạ tầng PaaS Miễn phí: Vercel & Render)" as ProdBoundary #F1F3F5 {
+
+    ' --- KHỐI FRONTEND TRÊN VERCEL ---
+    node "Node: CDN/Next.js service (Nền tảng Vercel)\n[Host apps/web - Global CDN & SSL/HTTPS Port 443]" as VercelNode #FFF9DB {
+        component "Vercel Global CDN\n(Code Splitting, Static Assets)" as VercelCDN
+        component "Next.js App Router (src/app/)\n- /menu, /menu/[id], /cart\n- /login, /register\n- /checkout (Hiển thị mã VietQR)\n- /orders, /orders/[id]" as NextAppRouter
+        component "API Services (src/services/)\n- product / auth / order / payment" as NextServices
+        artifact "Vercel Env\nNEXT_PUBLIC_API_URL" as VercelEnv
+
+        VercelCDN -down-> NextAppRouter : Route
+        NextAppRouter -down-> NextServices : Fetch
+        VercelEnv .up.> NextServices : Inject URL
+    }
+
+    ' --- KHỐI BACKEND TRÊN RENDER WEB SERVICE ---
+    node "Node: NestJS container (Render Web Service - Docker)\n[apps/api/Dockerfile - Auto HTTPS: 443 -> Internal Port: 4000]" as RenderApiNode #F3F0FF {
+        component "API Gateway & Guards\n- JwtAuthGuard (Bearer Token)\n- ValidationPipe & Idempotency" as NestGateway
+        component "NestJS Domain Modules\n- Product, Auth, Order\n- Promotion, Loyalty" as NestModules
+        component "PaymentModule & Webhook Handler\n- POST /payments (Tạo QR & Idempotency)\n- POST /payments/sepay-webhook" as PaymentModule
+        component "Data Access (Prisma/TypeORM)\n[Transaction & Row Locking]" as PrismaDAL
+        interface "GET /health" as HealthCheck
+
+        NestGateway -down-> NestModules : Xử lý
+        NestGateway -down-> PaymentModule : Điều phối thanh toán
+        NestModules -down-> PrismaDAL : Transaction
+        PaymentModule -down-> PrismaDAL : Lưu Payment & Order PAID
+        NestModules -up- HealthCheck
+    }
+
+    ' --- KHỐI DATABASE & LOG/SECRET ĐẶT PHÍA DƯỚI ---
+    together {
+        node "Node: Render PostgreSQL (Free - Private Network)\n[Internal Port: 5432 - Không Public ra Internet]" as RenderDbNode #D3F9D8 {
+            database "PostgreSQL 16 Instance\n- users, products, promotions\n- orders, order_items\n- payments, loyalty_transactions" as PostgresDB
+            folder "Persistent Storage Volume\n[Lưu trữ bền vững & Migration]" as PGVolume
+            
+            PostgresDB *-right- PGVolume : Mount SSD
+        }
+
+        node "Node: Render Secrets & Observability" as RenderOpsNode #FFE3E3 {
+            artifact "Render Environment (.env / Secrets)\n- DATABASE_URL (Internal URL)\n- JWT_SECRET, PORT=4000\n- SEPAY_API_KEY / WEBHOOK_SECRET" as RenderSecrets
+            component "Render Health Monitor & Log Stream\n- Thu thập JSON Logs (stdout/stderr)\n- Ping GET /health (Auto-restart)" as RenderLogger
+        }
+    }
+}
+
+' =========================================================================
+' NODE DỊCH VỤ THANH TOÁN BÊN THỨ 3 (SEPAY & VIETQR)
+' =========================================================================
+node "Ranh giới: Dịch vụ Thanh toán Bên thứ 3 (External Payment Gateway)" as ExternalPaymentBoundary #FFF0F6 {
+    node "Node: SePay & VietQR Service\n[Cổng thanh toán QR & Đối soát giao dịch]" as SePayNode #FFDEEB {
+        component "VietQR Generator Service\n[Sinh ảnh mã QR chuyển khoản động\ntheo mã đơn & số tiền]" as VietQRService
+        component "SePay Payment & Webhook Engine\n[Giả lập/Xác nhận biến động số dư\n& bắn Webhook IPN về Backend]" as SePayEngine
+    }
+}
+
+' =========================================================================
+' CÁC ĐƯỜNG KẾT NỐI GIAO THỨC & CỔNG MẠNG (CHUẨN CÚ PHÁP)
+' =========================================================================
+
+' 1. Từ Thiết bị người dùng xuống Vercel và Render
+ServiceWorker --> VercelCDN : HTTPS (Port 443)\n[Tải PWA & Giao diện]
+ApiClient --> NestGateway : HTTPS (Port 443)\n[REST API + JWT + Idempotency-Key]
+
+' 2. Giữa Vercel (Next.js) và Render (NestJS)
+NextServices -right-> NestGateway : HTTPS (Port 443 -> 4000)\n[SSR Fetch /products]
+
+' 3. Giữa CI/CD (GitHub Actions + Docker Hub) và Render
+DockerHub ..> RenderApiNode : Pull Docker Image (HTTPS:443)
+GHRunner ..> RenderApiNode : Trigger Deploy Webhook
+GHRunner ..> HealthCheck : Smoke Test (GET /health)
+
+' 4. Giữa NestJS Container và Render PostgreSQL
+PrismaDAL --> PostgresDB : Internal Database URL\n(Private TCP: 5432)
+
+' 5. Luồng Secrets, Health Check và Logs trên Render
+RenderSecrets .up.> NestGateway : Inject Secrets (.env)
+NestModules .down.> RenderLogger : Xuất JSON Logs
+RenderLogger -up-> HealthCheck : Ping /health (30s)
+
+' 6. Luồng tích hợp Thanh toán bên thứ 3 (SePay & VietQR)
+PaymentModule --> VietQRService : HTTPS (Port 443)\n[1. Yêu cầu tạo mã VietQR\nkèm nội dung mã đơn]
+SePayEngine --> PaymentModule : HTTPS POST Webhook (Port 443)\n[2. Callback xác nhận giao dịch\n(Header: Authorization / Apikey)]
+ClientApp ..> VietQRService : HTTPS (Port 443)\n[Hiển thị ảnh mã VietQR\ntrên màn hình Checkout]
+
+@enduml
