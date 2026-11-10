@@ -1,0 +1,41 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Khách hàng" as Customer
+actor "Hệ thống Thanh toán" as PaymentSystem
+
+rectangle "BrewLite - Đặt và Thanh toán Đơn hàng" {
+    usecase "Đặt đơn hàng" as UC_PlaceOrder
+    usecase "Xem giỏ hàng & Tổng tiền" as UC_ViewCart
+    usecase "Thanh toán" as UC_Payment
+    
+    usecase "Kiểm tra tồn kho" as UC_CheckStock
+    usecase "Đăng nhập tài khoản" as UC_Login
+    usecase "Áp dụng voucher" as UC_ApplyVoucher
+    
+    usecase "Xử lý giao dịch thanh toán" as UC_ProcessPayment
+    usecase "Tích lũy điểm thưởng" as UC_LoyaltyPoints
+    usecase "Chọn phương thức thanh toán" as UC_SelectPaymentMethod
+    usecase "Xử lý thanh toán lỗi" as UC_HandlePaymentError
+}
+
+' Liên kết giữa Actor và Use Case (đường thẳng không mũi tên)
+Customer -- UC_PlaceOrder
+Customer -- UC_ViewCart
+Customer -- UC_Payment
+
+PaymentSystem -- UC_ProcessPayment
+
+' Quan hệ giữa các Use case (mũi tên nét đứt <<include>> / <<extend>>)
+UC_PlaceOrder ..> UC_CheckStock : <<include>>
+UC_PlaceOrder ..> UC_Login : <<include>>
+UC_ApplyVoucher ..> UC_PlaceOrder : <<extend>>
+
+UC_Payment ..> UC_PlaceOrder : <<include>>
+UC_Payment ..> UC_ProcessPayment : <<include>>
+UC_Payment ..> UC_LoyaltyPoints : <<include>>
+UC_Payment ..> UC_SelectPaymentMethod : <<include>>
+UC_HandlePaymentError ..> UC_Payment : <<extend>>
+
+@enduml
