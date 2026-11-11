@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProductCard from "../../components/menu/ProductCard";
+import { MenuSkeleton } from "../../components/ui/MenuSkeleton";
+import { EmptyState } from "../../components/ui/EmptySate";
+import { ErrorAlert } from "../../components/ui/ErrorAlert";
 import { getProducts } from "../../lib/product-api";
 import type { Product } from "../../types/product";
 import styles from "./menu.module.css";
@@ -12,15 +15,19 @@ export default function MenuPage() {
   const [selectedCategory, setSelectedCategory] = useState("Tất cả");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isRetrying, setIsRetrying] = useState(false);
 
-  const loadProducts = useCallback(async () => {
+  const loadProducts = useCallback(async (isRetry = false) => {
     try {
-      setLoading(true);
+      if (isRetry) {
+        setIsRetrying(true);
+      } else {
+        setLoading(true);
+      }
       setError("");
 
       const data = await getProducts();
-
-      setProducts(data);
+      setProducts(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Không thể tải danh sách sản phẩm:", err);
 
@@ -30,6 +37,7 @@ export default function MenuPage() {
       );
     } finally {
       setLoading(false);
+      setIsRetrying(false);
     }
   }, []);
 
@@ -133,64 +141,41 @@ export default function MenuPage() {
           )}
         </div>
 
+        {/* 1. Trạng thái Đang tải: Gọi MenuSkeleton của TV6 */}
         {loading ? (
-          <div
-            className={styles.message}
-            role="status"
-            aria-live="polite"
-          >
-            Đang tải Menu...
-          </div>
+          <MenuSkeleton count={6} />
         ) : error ? (
-          <div className={styles.errorBox} role="alert">
-            <p>{error}</p>
-
-            <button
-              type="button"
-              className={styles.retryButton}
-              onClick={() => void loadProducts()}
-            >
-              Thử lại
-            </button>
-          </div>
+          /* 2. Trạng thái Báo lỗi: Gọi ErrorAlert của TV6 */
+          <ErrorAlert
+            message={error}
+            isRetrying={isRetrying}
+            onRetry={() => void loadProducts(true)}
+          />
         ) : filteredProducts.length === 0 ? (
-          <div className={styles.emptyState}>
-            <h3>
-              {products.length === 0
+          /* 3. Trạng thái Danh sách trống: Gọi EmptyState của TV6 */
+          <EmptyState
+            message={
+              products.length === 0
                 ? "Menu hiện chưa có sản phẩm"
-                : "Không tìm thấy sản phẩm"}
-            </h3>
-
-            <p>
-              {products.length === 0
+                : "Không tìm thấy sản phẩm"
+            }
+            description={
+              products.length === 0
                 ? "Hiện tại chưa có thức uống nào được thêm vào hệ thống."
-                : "Hãy thử từ khóa hoặc danh mục khác."}
-            </p>
-
-            {products.length > 0 && (
-              <button
-                type="button"
-                className={styles.resetButton}
-                onClick={() => {
-                  setKeyword("");
-                  setSelectedCategory("Tất cả");
-                }}
-              >
-                Xóa bộ lọc
-              </button>
-            )}
-
-            {products.length === 0 && (
-              <button
-                type="button"
-                className={styles.retryButton}
-                onClick={() => void loadProducts()}
-              >
-                Tải lại
-              </button>
-            )}
-          </div>
+                : "Hãy thử từ khóa hoặc danh mục khác."
+            }
+            actionLabel={products.length > 0 ? "Xóa bộ lọc" : "Tải lại"}
+            onReset={() => {
+              if (products.length > 0) {
+                setKeyword("");
+                setSelectedCategory("Tất cả");
+              } else {
+                void loadProducts();
+              }
+            }}
+          />
         ) : (
+          /* 4. Trạng thái Thành công: Danh sách món */
           <div className={styles.productGrid}>
             {filteredProducts.map((product) => (
               <ProductCard
