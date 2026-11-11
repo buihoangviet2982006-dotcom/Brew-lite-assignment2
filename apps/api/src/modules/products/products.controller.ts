@@ -5,7 +5,10 @@ import { ProductsService } from './products.service';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  // Chỗ để Hoàng Gia Bảo thêm @Get() cho API GET /products
+  @Get()
+  async findAll() {
+    return this.productsService.findAll();
+  }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
