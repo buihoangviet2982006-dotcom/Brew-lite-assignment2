@@ -1,0 +1,214 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { OrderStatus, ProductSize } from '@prisma/client';
+import { OrdersService } from './orders.service';
+import { PrismaService } from '../../prisma/prisma.service';
+
+describe('OrdersService (FR-05)', () => {
+  let service: OrdersService;
+
+  const mockTx = {
+    user: {
+      findUnique: jest.fn(),
+    },
+    product: {
+      findMany: jest.fn(),
+    },
+    topping: {
+      findMany: jest.fn(),
+    },
+    ingredient: {
+      updateMany: jest.fn(),
+    },
+    promotion: {
+      findUnique: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    order: {
+      create: jest.fn(),
+    },
+  };
+
+  const mockPrismaService = {
+    $transaction: jest.fn((callback: (tx: typeof mockTx) => unknown) =>
+      callback(mockTx),
+    ),
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        OrdersService,
+        {
+          provide: PrismaService,
+          useValue: mockPrismaService,
+        },
+      ],
+    }).compile();
+
+    service = module.get<OrdersService>(OrdersService);
+    jest.clearAllMocks();
+  });
+
+  it('1. Tạo đơn hàng PENDING thành công và trừ tồn kho với Optimistic Locking', async () => {
+    mockTx.user.findUnique.mockResolvedValue({ id: 'user-1' });
+    mockTx.product.findMany.mockResolvedValue([
+      {
+        id: 'prod-1',
+        name: 'Cà phê sữa đá BrewLite',
+        price: 39000,
+        imageUrl: '',
+        isAvailable: true,
+        recipeItems: [
+          {
+            ingredientId: 'ing-1',
+            quantityRequired: 20,
+            ingredient: {
+              id: 'ing-1',
+              name: 'Robusta',
+              stockQuantity: 500,
+              version: 1,
+            },
+          },
+        ],
+      },
+    ]);
+    mockTx.topping.findMany.mockResolvedValue([
+      { id: 'top-1', name: 'Trân châu', price: 10000, isAvailable: true },
+    ]);
+    mockTx.ingredient.updateMany.mockResolvedValue({ count: 1 });
+    mockTx.order.create.mockResolvedValue({
+      id: 'order-123',
+      userId: 'user-1',
+      status: OrderStatus.PENDING,
+      subtotal: 98000,
+      discountAmount: 0,
+      total: 98000,
+      promotionId: null,
+      orderItems: [
+        {
+          id: 'oi-1',
+          productId: 'prod-1',
+          size: ProductSize.M,
+          quantity: 2,
+          lineTotal: 98000,
+          product: {
+            id: 'prod-1',
+            name: 'Cà phê sữa đá BrewLite',
+            price: 39000,
+            imageUrl: '',
+          },
+          toppings: [{ id: 'top-1', name: 'Trân châu', price: 10000 }],
+        },
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const result = await service.createOrder('user-1', {
+      items: [
+        {
+          productId: 'prod-1',
+          size: ProductSize.M,
+          quantity: 2,
+          toppingIds: ['top-1'],
+        },
+      ],
+    });
+
+    expect(mockTx.ingredient.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ing-1',
+        version: 1,
+        stockQuantity: { gte: 40 },
+      },
+      data: {
+        stockQuantity: { decrement: 40 },
+        version: { increment: 1 },
+      },
+    });
+    expect(result.orderId).toBe('order-123');
+    expect(result.status).toBe(OrderStatus.PENDING);
+    expect(result.total).toBe(98000);
+  });
+
+  it('2. Ném lỗi 409 Conflict và Rollback khi nguyên liệu không đủ tồn kho', async () => {
+    mockTx.user.findUnique.mockResolvedValue({ id: 'user-1' });
+    mockTx.product.findMany.mockResolvedValue([
+      {
+        id: 'prod-1',
+        name: 'Espresso',
+        price: 35000,
+        isAvailable: true,
+        recipeItems: [
+          {
+            ingredientId: 'ing-1',
+            quantityRequired: 18,
+            ingredient: {
+              id: 'ing-1',
+              name: 'Robusta',
+              stockQuantity: 10, // Chỉ còn 10g < 18g yêu cầu
+              version: 1,
+            },
+          },
+        ],
+      },
+    ]);
+
+    await expect(
+      service.createOrder('user-1', {
+        items: [{ productId: 'prod-1', size: ProductSize.S, quantity: 1 }],
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    expect(mockTx.order.create).not.toHaveBeenCalled();
+  });
+
+  it('3. Ném lỗi 409 Conflict khi xảy ra Race Condition (Optimistic Locking count = 0)', async () => {
+    mockTx.user.findUnique.mockResolvedValue({ id: 'user-1' });
+    mockTx.product.findMany.mockResolvedValue([
+      {
+        id: 'prod-1',
+        name: 'Espresso',
+        price: 35000,
+        isAvailable: true,
+        recipeItems: [
+          {
+            ingredientId: 'ing-1',
+            quantityRequired: 18,
+            ingredient: {
+              id: 'ing-1',
+              name: 'Robusta',
+              stockQuantity: 100,
+              version: 2,
+            },
+          },
+        ],
+      },
+    ]);
+    mockTx.ingredient.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.createOrder('user-1', {
+        items: [{ productId: 'prod-1', size: ProductSize.M, quantity: 1 }],
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    expect(mockTx.order.create).not.toHaveBeenCalled();
+  });
+
+  it('4. Ném lỗi 400 Bad Request khi chọn trùng topping trong cùng 1 món', async () => {
+    await expect(
+      service.createOrder('user-1', {
+        items: [
+          {
+            productId: 'prod-1',
+            size: ProductSize.M,
+            quantity: 1,
+            toppingIds: ['top-1', 'top-1'],
+          },
+        ],
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
