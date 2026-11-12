@@ -262,7 +262,7 @@ Các thực thể dữ liệu được định nghĩa trong `prisma/schema.prism
 2. **`Product`:** Thông tin đồ uống, giá gốc (`basePrice`), cấu hình tùy chọn kích cỡ/topping (`options`), trạng thái sẵn sàng (`isAvailable`) và số lượng tồn kho (`stockQuantity`).
 3. **`Order`:** Đơn hàng, tổng tiền gốc, số tiền giảm giá, tổng thanh toán cuối cùng, mã tham chiếu thanh toán (`paymentRef` dạng `BREW<ID>`) và trạng thái vòng đời:
    $$\text{PENDING} \longrightarrow \text{PAID} \longrightarrow \text{PREPARING} \longrightarrow \text{COMPLETED} \quad (\text{hoặc } \text{CANCELLED})$$
-4. **`OrderItem`:** Chi tiết các món trong đơn, lưu trữ kích cỡ (`size`), danh sách `toppings` đã chọn và bản chụp giá (Price Snapshot) tại thời điểm khách đặt hàng để không bị ảnh hưởng khi giá menu thay đổi sau này.
+4. **`OrderItem`:** Chi tiết các món trong đơn, lưu trữ kích cỡ (`size`), danh sách `toppings` đã chọn .
 5. **`Payment`:** Lưu trữ phương thức thanh toán (`VIETQR_SEPAY`, `EWALLET_MOCK`, `CARD_MOCK`), số tiền, URL mã VietQR (`qrCodeUrl`), khóa chống lặp của Client (`idempotencyKey @unique`), mã giao dịch bên thứ ba (`externalTransactionId @unique`) và trạng thái giao dịch (`PENDING`, `SUCCESS`, `FAILED`).
 6. **`Promotion`:** Quản lý mã khuyến mãi (`code`), loại giảm giá (`PERCENTAGE`, `FIXED_AMOUNT`), giá trị giảm, hạn sử dụng và số lượt sử dụng tối đa.
 7. **`LoyaltyTransaction`:** Lưu trữ lịch sử cộng/trừ điểm thưởng (`EARN`, `REDEEM`) của khách hàng gắn liền với từng đơn hàng thanh toán thành công.
