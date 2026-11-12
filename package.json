@@ -16,6 +16,7 @@
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
     "db:generate": "npm run prisma:generate --workspace=@brewlite/api",
+    "db:push": "npm run prisma:push --workspace=@brewlite/api",
     "db:migrate": "npm run prisma:migrate --workspace=@brewlite/api",
     "db:seed": "npm run prisma:seed --workspace=@brewlite/api"
   },
