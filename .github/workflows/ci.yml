@@ -1,0 +1,36 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop, ci/setup-github-actions]
+
+jobs:
+  quality-gate:
+    name: Install, Lint, Unit Test, Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 1. Install dependencies
+        run: |
+          npm ci
+          npm run db:generate
+
+      - name: 2. Run Lint
+        run: npm run lint
+
+      - name: 3. Run Unit Tests
+        run: npm run test
+
+      - name: 4. Build Applications
+        run: npm run build
