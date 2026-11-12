@@ -7,9 +7,55 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PREPARING
+  COMPLETED
+  CANCELLED
+  PAYMENT_FAILED
+}
+
+enum ProductSize {
+  S
+  M
+  L
+}
+
+enum PaymentMethod {
+  WALLET
+  CARD
+}
+
+enum PaymentStatus {
+  SUCCEEDED
+  FAILED
+}
+
 enum IngredientUnit {
   GRAM
   ML
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id                  String               @id @default(uuid())
+  email               String               @unique
+  passwordHash        String               @map("password_hash")
+  loyaltyPoints       Int                  @default(0) @map("loyalty_points")
+  orders              Order[]
+  loyaltyTransactions LoyaltyTransaction[]
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  @@map("users")
 }
 
 model Product {
@@ -19,10 +65,104 @@ model Product {
   imageUrl    String?      @map("image_url")
   isAvailable Boolean      @default(true) @map("is_available")
   recipeItems RecipeItem[]
+  orderItems  OrderItem[]
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
   @@map("products")
+}
+
+model Topping {
+  id          String      @id @default(uuid())
+  name        String
+  price       Decimal     @db.Decimal(10, 2)
+  imageUrl    String?     @map("image_url")
+  isAvailable Boolean     @default(true) @map("is_available")
+  orderItems  OrderItem[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@map("toppings")
+}
+
+model Promotion {
+  id             String    @id @default(uuid())
+  code           String    @unique
+  discountValue  Decimal   @map("discount_value") @db.Decimal(10, 2)
+  minOrderAmount Decimal   @default(0) @map("min_order_amount") @db.Decimal(10, 2)
+  validFrom      DateTime  @map("valid_from")
+  validUntil     DateTime  @map("valid_until")
+  usageLimit     Int       @default(0) @map("usage_limit")
+  usedCount      Int       @default(0) @map("used_count")
+  isActive       Boolean   @default(true) @map("is_active")
+  orders         Order[]
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("promotions")
+}
+
+model Order {
+  id                  String               @id @default(uuid())
+  userId              String               @map("user_id")
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status              OrderStatus          @default(PENDING)
+  subtotal            Decimal              @db.Decimal(10, 2)
+  discountAmount      Decimal              @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  total               Decimal              @db.Decimal(10, 2)
+  promotionId         String?              @map("promotion_id")
+  promotion           Promotion?           @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  orderItems          OrderItem[]
+  payment             Payment?
+  loyaltyTransactions LoyaltyTransaction[]
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String      @id @default(uuid())
+  orderId   String      @map("order_id")
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String      @map("product_id")
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  size      ProductSize @default(M)
+  quantity  Int         @default(1)
+  lineTotal Decimal     @map("line_total") @db.Decimal(10, 2)
+  toppings  Topping[]
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  @@map("order_items")
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  orderId        String        @unique @map("order_id")
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  idempotencyKey String        @unique @map("idempotency_key")
+  amount         Decimal       @db.Decimal(10, 2)
+  method         PaymentMethod
+  status         PaymentStatus
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@map("payments")
+}
+
+model LoyaltyTransaction {
+  id          String   @id @default(uuid())
+  name        String?
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId     String?  @map("order_id")
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  points      Int
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("loyalty_transactions")
 }
 
 model Ingredient {
