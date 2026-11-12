@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 
@@ -71,6 +72,16 @@ describe('ProductsController', () => {
 
       expect(service.findOne).toHaveBeenCalledWith('prod-1');
       expect(result).toEqual(mockProductList[0]);
+    });
+
+    it('should propagate NotFoundException if product does not exist', async () => {
+      mockProductsService.findOne.mockRejectedValueOnce(
+        new NotFoundException('Không tìm thấy sản phẩm')
+      );
+
+      await expect(controller.findOne('non-existent')).rejects.toThrow(
+        NotFoundException
+      );
     });
   });
 });
