@@ -1,9 +1,4 @@
 @startuml
-skinparam defaultTextAlignment center
-skinparam roundCorner 8
-skinparam shadowing false
-skinparam monochrome false
-
 title Activity Diagram - Luồng Đặt và Thanh toán Đơn hàng End-to-End
 
 |Khách hàng (Customer)|
@@ -15,10 +10,13 @@ start
 if () then ([Chưa đăng nhập])
   |Khách hàng (Customer)|
   :Nhập thông tin Đăng nhập;
+
   |Giao diện (Next.js PWA)|
   :Gửi POST /api/auth/login;
+
   |Backend & DB (NestJS + PostgreSQL)|
   :Xác thực & Cấp JWT Token;
+
   |Giao diện (Next.js PWA)|
   :Lưu Token & Quay lại màn hình Đặt đơn;
 else ([Đã đăng nhập])
@@ -28,7 +26,7 @@ endif
 :Chọn Ví/Thẻ mô phỏng & Nhấn "Thanh toán ngay";
 
 |Giao diện (Next.js PWA)|
-:Sinh Idempotency-Key & Gửi POST /orders;
+:Gửi POST /orders (Bearer JWT, items, promotionCode);
 
 |Backend & DB (NestJS + PostgreSQL)|
 :Xác thực JWT & Validate dữ liệu giỏ hàng;
@@ -36,41 +34,63 @@ endif
 
 if () then ([Hết hàng])
   :Rollback Transaction & Trả lỗi Conflict;
+
   |Giao diện (Next.js PWA)|
   :Hiển thị cảnh báo "Món đã hết hàng";
+
   |Khách hàng (Customer)|
   :Điều chỉnh lại giỏ hàng;
   stop
 else ([Đủ hàng])
-  |Backend & DB (NestJS + PostgreSQL)|
   :Trừ tồn kho & Tạo Order (status = PENDING);
-  :Gửi lệnh thanh toán kèm Idempotency-Key;
+  :Commit DB Transaction 1 & Trả về 201 Created (orderId);
+endif
 
-  |Cổng Thanh toán (Payment Service)|
-  :Xử lý giao dịch thu tiền;
-  if () then ([Thành công])
-    :Phản hồi SUCCESS & transactionRef;
-    |Backend & DB (NestJS + PostgreSQL)|
-    :Cập nhật Payment -> SUCCESS, Order -> PAID;
-    :Ghi nhận điểm thưởng LoyaltyTransaction;
-    :Commit Transaction & OK;
-    |Giao diện (Next.js PWA)|
-    :Làm trống Giỏ hàng & Hiển thị QR nhận nước;
-    |Khách hàng (Customer)|
-    :Theo dõi trạng thái đơn tại quầy;
-    stop
-  else ([Thất bại / Timeout])
-    |Cổng Thanh toán (Payment Service)|
-    :Phản hồi FAILED;
-    |Backend & DB (NestJS + PostgreSQL)|
-    :Hoàn trả tồn kho (Rollback);
-    :Cập nhật Order -> PAYMENT_FAILED;
-    |Giao diện (Next.js PWA)|
-    :Thông báo lỗi thanh toán & giữ nguyên giỏ;
-    |Khách hàng (Customer)|
-    :Thử lại hoặc đổi phương thức thanh toán;
-    stop
-  endif
+|Giao diện (Next.js PWA)|
+:Sinh Idempotency-Key (UUID v4) & Gửi POST /payments (orderId, method);
+
+|Backend & DB (NestJS + PostgreSQL)|
+:Kiểm tra Idempotency-Key trong Database;
+
+if () then ([Trùng key - Đã xử lý])
+  :Lấy kết quả giao dịch cũ & Trả về 200 OK;
+
+  |Giao diện (Next.js PWA)|
+  :Hiển thị kết quả xác nhận cũ (chống trừ tiền 2 lần);
+  stop
+else ([Key mới hoàn toàn])
+endif
+
+|Cổng thanh toán|
+:Xử lý giao dịch thu tiền;
+
+if () then ([Thành công])
+  :Phản hồi SUCCESS & transactionRef;
+
+  |Backend & DB (NestJS + PostgreSQL)|
+  :Cập nhật Payment → SUCCESS, Order → PAID;
+  :Ghi nhận điểm thưởng LoyaltyTransaction;
+  :Commit Transaction & OK;
+
+  |Giao diện (Next.js PWA)|
+  :Làm trống Giỏ hàng & Hiển thị QR nhận nước;
+
+  |Khách hàng (Customer)|
+  :Theo dõi trạng thái đơn tại quầy;
+  stop
+else ([Thất bại / Timeout])
+  :Phản hồi FAILED;
+
+  |Backend & DB (NestJS + PostgreSQL)|
+  :Hoàn trả tồn kho (Rollback);
+  :Cập nhật Order → PAYMENT_FAILED;
+
+  |Giao diện (Next.js PWA)|
+  :Thông báo lỗi thanh toán & Giữ nguyên giỏ;
+
+  |Khách hàng (Customer)|
+  :Thử lại hoặc đổi phương thức thanh toán;
+  stop
 endif
 
 @enduml
