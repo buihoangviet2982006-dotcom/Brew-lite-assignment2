@@ -203,4 +203,61 @@ describe('MenuPage Component & Main Flow (Task 4.3 MVP Sprint 1)', () => {
     expect(container.textContent).toContain('Cà phê Sữa Đá');
     expect(container.textContent).not.toContain('Trà Đào Cam Sả');
   });
+
+  it('7. Luồng giỏ hàng: thêm, sửa số lượng, tính tổng và xóa món', async () => {
+    vi.mocked(productApi.getProducts).mockResolvedValueOnce(mockProducts);
+
+    await act(async () => {
+      root.render(<MenuPage />);
+    });
+
+    const addButton = container.querySelector(
+      '[aria-label="Thêm Cà phê Sữa Đá vào giỏ hàng"]'
+    ) as HTMLButtonElement;
+    const total = container.querySelector(
+      '[data-testid="cart-total"]'
+    );
+    const cartCount = container.querySelector(
+      '[data-testid="cart-count"]'
+    );
+
+    await act(async () => {
+      addButton.click();
+      addButton.click();
+    });
+
+    expect(cartCount?.textContent).toBe('2 món');
+    expect(total?.textContent).toBe('58.000đ');
+
+    const increaseButton = container.querySelector(
+      '[aria-label="Tăng số lượng Cà phê Sữa Đá"]'
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      increaseButton.click();
+    });
+
+    expect(total?.textContent).toBe('87.000đ');
+
+    const decreaseButton = container.querySelector(
+      '[aria-label="Giảm số lượng Cà phê Sữa Đá"]'
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      decreaseButton.click();
+    });
+
+    expect(total?.textContent).toBe('58.000đ');
+
+    const removeButton = container.querySelector(
+      '[aria-label="Xóa Cà phê Sữa Đá khỏi giỏ hàng"]'
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      removeButton.click();
+    });
+
+    expect(total?.textContent).toBe('0đ');
+    expect(container.textContent).toContain('Giỏ hàng đang trống.');
+  });
 });

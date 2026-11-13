@@ -4,6 +4,7 @@ import type { Product } from "../../types/product";
 
 interface ProductCardProps {
   product: Product;
+  onAddToCart: (product: Product) => void;
 }
 
 const cardStyle: CSSProperties = {
@@ -43,7 +44,10 @@ const buttonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({
+  product,
+  onAddToCart,
+}: ProductCardProps) {
   const isAvailable =
     product.isAvailable && (product.stockQuantity ?? 1) > 0;
 
@@ -140,6 +144,8 @@ export default function ProductCard({ product }: ProductCardProps) {
           <button
             type="button"
             disabled={!isAvailable}
+            aria-label={`Thêm ${product.name} vào giỏ hàng`}
+            onClick={() => onAddToCart(product)}
             style={{
               ...buttonStyle,
               opacity: isAvailable ? 1 : 0.5,
