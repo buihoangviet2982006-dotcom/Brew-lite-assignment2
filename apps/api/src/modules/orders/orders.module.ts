@@ -19,6 +19,7 @@ import { OrdersService } from './orders.service';
   ],
   controllers: [OrdersController],
   providers: [OrdersService, OrderJwtAuthGuard],
-  exports: [OrdersService],
+  exports: [OrdersService, OrderJwtAuthGuard],
 })
 export class OrdersModule {}
+

@@ -168,6 +168,13 @@ export function saveCheckoutCart(items: CheckoutCartItem[]): void {
   window.localStorage.setItem("brewlite-cart", JSON.stringify(items));
 }
 
+export function clearCheckoutCart(): void {
+  if (typeof window === "undefined") return;
+  for (const key of CART_STORAGE_KEYS) {
+    window.localStorage.removeItem(key);
+  }
+}
+
 export interface CreateOrderApiError {
   status?: number;
   message: string;
@@ -221,3 +228,4 @@ export async function createOrder(
     } satisfies CreateOrderApiError;
   }
 }
+
