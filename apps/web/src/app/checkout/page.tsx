@@ -4,17 +4,29 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getProducts } from "../../lib/product-api";
 import {
+  clearCheckoutCart,
   createOrder,
   getStoredAccessToken,
   loadCheckoutCart,
   saveCheckoutCart,
   type CreateOrderApiError,
 } from "../../lib/order-api";
+import {
+  clearIdempotencyKey,
+  getOrCreateIdempotencyKey,
+  initiatePayment,
+} from "../../lib/payment-api";
+import { VietQrPaymentModal } from "../../components/checkout/VietQrPaymentModal";
 import type {
   CheckoutCartItem,
   CreatedOrderResponse,
   PaymentMethod,
 } from "../../types/order";
+import type {
+  PaymentApiError,
+  PaymentResultResponse,
+  PaymentSimulationScenario,
+} from "../../types/payment";
 import styles from "./checkout.module.css";
 
 export default function CheckoutPage() {
@@ -22,12 +34,18 @@ export default function CheckoutPage() {
   const [token, setToken] = useState<string | null>(null);
   const [promotionCode, setPromotionCode] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("WALLET");
+  const [simulateScenario, setSimulateScenario] =
+    useState<PaymentSimulationScenario>("QR");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [requireLogin, setRequireLogin] = useState(false);
   const [outOfStockIds, setOutOfStockIds] = useState<string[]>([]);
   const [createdOrder, setCreatedOrder] =
     useState<CreatedOrderResponse | null>(null);
+  const [activeQrPayment, setActiveQrPayment] =
+    useState<PaymentResultResponse | null>(null);
+  const [completedPayment, setCompletedPayment] =
+    useState<PaymentResultResponse | null>(null);
   const [devTokenInput, setDevTokenInput] = useState("");
 
   useEffect(() => {
@@ -49,24 +67,21 @@ export default function CheckoutPage() {
     }, 0);
   }, [items]);
 
-  const updateItemQuantity = useCallback(
-    (key: string, delta: number) => {
-      setItems((prev) => {
-        const next = prev
-          .map((item) =>
-            item.key === key
-              ? { ...item, quantity: item.quantity + delta }
-              : item
-          )
-          .filter((item) => item.quantity > 0);
-        saveCheckoutCart(next);
-        return next;
-      });
-      setOutOfStockIds([]);
-      setErrorMessage("");
-    },
-    []
-  );
+  const updateItemQuantity = useCallback((key: string, delta: number) => {
+    setItems((prev) => {
+      const next = prev
+        .map((item) =>
+          item.key === key
+            ? { ...item, quantity: item.quantity + delta }
+            : item
+        )
+        .filter((item) => item.quantity > 0);
+      saveCheckoutCart(next);
+      return next;
+    });
+    setOutOfStockIds([]);
+    setErrorMessage("");
+  }, []);
 
   const removeItem = useCallback((key: string) => {
     setItems((prev) => {
@@ -78,8 +93,31 @@ export default function CheckoutPage() {
     setErrorMessage("");
   }, []);
 
-  const handlePlaceOrder = async () => {
-    if (items.length === 0 || submitting) return;
+  const handlePaymentSucceeded = useCallback(
+    (finalPayment: PaymentResultResponse) => {
+      setActiveQrPayment(null);
+      setCompletedPayment(finalPayment);
+      clearCheckoutCart();
+      setItems([]);
+      setErrorMessage("");
+    },
+    []
+  );
+
+  const handlePaymentFailed = useCallback(
+    (message: string) => {
+      if (createdOrder) {
+        clearIdempotencyKey(createdOrder.orderId, paymentMethod);
+      }
+      setActiveQrPayment(null);
+      setCreatedOrder(null);
+      setErrorMessage(message);
+    },
+    [createdOrder, paymentMethod]
+  );
+
+  const handlePlaceOrderAndPay = async () => {
+    if ((items.length === 0 && !createdOrder) || submitting) return;
 
     setErrorMessage("");
     setRequireLogin(false);
@@ -97,37 +135,55 @@ export default function CheckoutPage() {
     try {
       setSubmitting(true);
 
-      const response = await createOrder(
-        {
-          items: items.map((item) => ({
-            productId: item.productId,
-            size: item.size,
-            quantity: item.quantity,
-            ...(item.toppings.length > 0
-              ? { toppingIds: item.toppings.map((t) => t.id) }
+      // Bước 1: Tạo đơn hàng ở trạng thái PENDING (nếu chưa có đơn chờ)
+      let targetOrder = createdOrder;
+      if (!targetOrder) {
+        targetOrder = await createOrder(
+          {
+            items: items.map((item) => ({
+              productId: item.productId,
+              size: item.size,
+              quantity: item.quantity,
+              ...(item.toppings.length > 0
+                ? { toppingIds: item.toppings.map((t) => t.id) }
+                : {}),
+            })),
+            ...(promotionCode.trim()
+              ? { promotionCode: promotionCode.trim().toUpperCase() }
               : {}),
-          })),
-          ...(promotionCode.trim()
-            ? { promotionCode: promotionCode.trim().toUpperCase() }
-            : {}),
-        },
-        currentToken
+          },
+          currentToken
+        );
+        setCreatedOrder(targetOrder);
+      }
+
+      // Bước 2: Sinh Idempotency-Key và gọi POST /payments
+      const idempotencyKey = getOrCreateIdempotencyKey(
+        targetOrder.orderId,
+        paymentMethod
       );
 
-      setCreatedOrder(response);
+      const paymentRes = await initiatePayment(
+        {
+          orderId: targetOrder.orderId,
+          method: paymentMethod,
+          idempotencyKey,
+          ...(simulateScenario !== "QR" ? { simulateScenario } : {}),
+        },
+        currentToken,
+        idempotencyKey
+      );
 
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(
-          "brewlite_pending_order",
-          JSON.stringify({
-            orderId: response.orderId,
-            total: response.total,
-            method: paymentMethod,
-          })
-        );
+      if (
+        paymentRes.status === "SUCCEEDED" ||
+        paymentRes.orderStatus === "PAID"
+      ) {
+        handlePaymentSucceeded(paymentRes);
+      } else {
+        setActiveQrPayment(paymentRes);
       }
     } catch (err) {
-      const apiErr = err as CreateOrderApiError;
+      const apiErr = err as CreateOrderApiError & PaymentApiError;
 
       if (apiErr.status === 401) {
         setRequireLogin(true);
@@ -141,8 +197,14 @@ export default function CheckoutPage() {
             "Một số sản phẩm trong giỏ đã hết hàng hoặc không đủ số lượng. Vui lòng cập nhật lại giỏ hàng."
         );
       } else {
+        // Lỗi thanh toán 400 / 504 -> đơn đã được rollback kho, reset createdOrder để khách thử lại
+        if (createdOrder) {
+          clearIdempotencyKey(createdOrder.orderId, paymentMethod);
+        }
+        setCreatedOrder(null);
         setErrorMessage(
-          apiErr.message || "Không thể tạo đơn hàng. Vui lòng kiểm tra lại."
+          apiErr.message ||
+            "Thanh toán không thành công. Giỏ hàng của bạn vẫn được giữ nguyên để thử lại."
         );
       }
     } finally {
@@ -156,7 +218,9 @@ export default function CheckoutPage() {
       const products = await getProducts();
       const available = products.filter((p) => p.isAvailable).slice(0, 2);
       if (available.length === 0) {
-        setErrorMessage("Không tìm thấy sản phẩm còn hàng từ API GET /products.");
+        setErrorMessage(
+          "Không tìm thấy sản phẩm còn hàng từ API GET /products."
+        );
         return;
       }
       const sample: CheckoutCartItem[] = available.map((p, idx) => ({
@@ -172,6 +236,8 @@ export default function CheckoutPage() {
       saveCheckoutCart(sample);
       setItems(sample);
       setCreatedOrder(null);
+      setCompletedPayment(null);
+      setActiveQrPayment(null);
     } catch {
       setErrorMessage(
         "Không thể tải sản phẩm mẫu. Hãy đảm bảo Backend đang chạy ở cổng 4000."
@@ -196,15 +262,20 @@ export default function CheckoutPage() {
         </Link>
 
         <header>
-          <span className={styles.brand}>BREWLITE CHECKOUT</span>
-          <h1 className={styles.title}>Xác nhận & Đặt đơn hàng</h1>
+          <span className={styles.brand}>BREWLITE CHECKOUT & PAYMENT</span>
+          <h1 className={styles.title}>Xác nhận &amp; Thanh toán Đơn hàng</h1>
           <p className={styles.subtitle}>
-            Kiểm tra lại danh sách đồ uống và hoàn tất tạo đơn nhận tại quầy
+            Thanh toán không tiền mặt qua Ví/Thẻ kết hợp mã VietQR &amp; SePay
+            Sandbox
           </p>
         </header>
 
         {errorMessage && (
-          <div className={styles.alertError} role="alert" data-testid="checkout-error">
+          <div
+            className={styles.alertError}
+            role="alert"
+            data-testid="checkout-error"
+          >
             <div>{errorMessage}</div>
             {requireLogin && (
               <div className={styles.actionRow}>
@@ -219,46 +290,72 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {createdOrder ? (
-          <section className={styles.alertSuccess} data-testid="checkout-success">
+        {completedPayment ? (
+          <section
+            className={styles.alertSuccess}
+            data-testid="payment-success-banner"
+          >
             <h2 className={styles.cardTitle}>
-              Đã khởi tạo đơn hàng thành công!
+              🎉 Thanh toán Đơn hàng Thành công!
             </h2>
             <p style={{ margin: "0 0 8px", fontSize: "14px" }}>
-              Mã đơn hàng: <strong>#{createdOrder.orderId}</strong>
+              Mã đơn hàng: <strong>#{completedPayment.orderId}</strong>
             </p>
             <p style={{ margin: "0 0 8px", fontSize: "14px" }}>
-              Trạng thái: <strong>{createdOrder.status}</strong> (Đã khóa tồn kho)
+              Mã tham chiếu giao dịch:{" "}
+              <strong>{completedPayment.paymentRef}</strong>
             </p>
-            <p style={{ margin: "0 0 4px", fontSize: "15px" }}>
-              Tổng thanh toán:{" "}
-              <strong>{createdOrder.total.toLocaleString("vi-VN")}đ</strong> (
-              {paymentMethod === "WALLET" ? "Ví điện tử" : "Thẻ ngân hàng"})
+            <p style={{ margin: "0 0 8px", fontSize: "14px" }}>
+              Trạng thái đơn:{" "}
+              <strong data-testid="paid-order-status">
+                {completedPayment.orderStatus}
+              </strong>{" "}
+              (Payment: <strong>{completedPayment.status}</strong>)
+            </p>
+            <p style={{ margin: "0 0 8px", fontSize: "14px" }}>
+              Phương thức:{" "}
+              <strong>
+                {completedPayment.method === "WALLET"
+                  ? "Ví điện tử (WALLET)"
+                  : "Thẻ ngân hàng (CARD)"}
+              </strong>
+            </p>
+            <p style={{ margin: "0 0 8px", fontSize: "15px" }}>
+              Tổng đã thanh toán:{" "}
+              <strong>
+                {completedPayment.amount.toLocaleString("vi-VN")}đ
+              </strong>
+            </p>
+            <p style={{ margin: "0 0 8px", fontSize: "14px" }}>
+              Điểm thưởng tích lũy:{" "}
+              <strong>+{completedPayment.loyaltyPointsEarned} điểm</strong>
+            </p>
+            <p style={{ margin: "0 0 4px", fontSize: "12px", opacity: 0.85 }}>
+              Idempotency-Key: <code>{completedPayment.idempotencyKey}</code>
+              {completedPayment.idempotentReplayed
+                ? " (Đã chặn xử lý trùng lặp Idempotency)"
+                : ""}
             </p>
 
             <div className={styles.actionRow}>
-              <Link
-                href={`/orders/${createdOrder.orderId}?method=${paymentMethod}`}
-                className={styles.secondaryButton}
-              >
-                Tiếp tục Thanh toán / Theo dõi đơn
+              <Link href="/menu" className={styles.secondaryButton}>
+                Tiếp tục chọn món mới
               </Link>
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={() => setCreatedOrder(null)}
-              >
-                Quay lại đơn vừa tạo
-              </button>
             </div>
           </section>
         ) : items.length === 0 ? (
-          <section className={`${styles.card} ${styles.emptyBox}`} data-testid="checkout-empty">
+          <section
+            className={`${styles.card} ${styles.emptyBox}`}
+            data-testid="checkout-empty"
+          >
             <h2 className={styles.cardTitle}>Giỏ hàng của bạn đang trống</h2>
             <p className={styles.subtitle}>
               Vui lòng chọn ít nhất 1 thức uống từ thực đơn trước khi đặt đơn.
             </p>
-            <div className={styles.actionRow} style={{ justifyContent: "center" }}>
+            <div
+              className={styles.actionRow}
+              style={{ justifyContent: "center" }}
+            >
               <Link href="/menu" className={styles.secondaryButton}>
                 Xem thực đơn ngay
               </Link>
@@ -270,7 +367,7 @@ export default function CheckoutPage() {
                 disabled
                 data-testid="submit-order-btn"
               >
-                Tiến hành đặt đơn
+                Tiến hành đặt đơn &amp; Thanh toán
               </button>
             </div>
           </section>
@@ -352,7 +449,7 @@ export default function CheckoutPage() {
             </section>
 
             <section className={styles.card}>
-              <h2 className={styles.cardTitle}>Mã khuyến mãi (Tùy chọn)</h2>
+              <h2 className={styles.cardTitle}>Mã khuyến mãi (Voucher)</h2>
               <div className={styles.promoRow}>
                 <input
                   type="text"
@@ -369,6 +466,7 @@ export default function CheckoutPage() {
               <div className={styles.methodGrid}>
                 <button
                   type="button"
+                  data-testid="method-wallet-btn"
                   className={
                     paymentMethod === "WALLET"
                       ? styles.methodActive
@@ -376,12 +474,17 @@ export default function CheckoutPage() {
                   }
                   onClick={() => setPaymentMethod("WALLET")}
                 >
-                  <span>Ví điện tử (MoMo / BrewLite Pay)</span>
-                  <span>{paymentMethod === "WALLET" ? "✓" : ""}</span>
+                  <div>
+                    <div>Ví điện tử (WALLET)</div>
+                    <span className={styles.methodSub}>
+                      Quét mã chuyển khoản VietQR / SePay
+                    </span>
+                  </div>
+                  <span>{paymentMethod === "WALLET" ? "●" : "○"}</span>
                 </button>
-
                 <button
                   type="button"
+                  data-testid="method-card-btn"
                   className={
                     paymentMethod === "CARD"
                       ? styles.methodActive
@@ -389,8 +492,13 @@ export default function CheckoutPage() {
                   }
                   onClick={() => setPaymentMethod("CARD")}
                 >
-                  <span>Thẻ ngân hàng (ATM / Visa)</span>
-                  <span>{paymentMethod === "CARD" ? "✓" : ""}</span>
+                  <div>
+                    <div>Thẻ ngân hàng (CARD)</div>
+                    <span className={styles.methodSub}>
+                      Quét mã chuyển khoản VietQR / SePay
+                    </span>
+                  </div>
+                  <span>{paymentMethod === "CARD" ? "●" : "○"}</span>
                 </button>
               </div>
             </section>
@@ -398,8 +506,8 @@ export default function CheckoutPage() {
             <section className={styles.card}>
               <h2 className={styles.cardTitle}>Tóm tắt thanh toán</h2>
               <div className={styles.summaryRow}>
-                <span>Tạm tính ({items.reduce((s, i) => s + i.quantity, 0)} ly)</span>
-                <span>{subtotal.toLocaleString("vi-VN")}đ</span>
+                <span>Tạm tính ({items.length} món)</span>
+                <strong>{subtotal.toLocaleString("vi-VN")}đ</strong>
               </div>
               {promotionCode.trim() && (
                 <div className={styles.summaryRow}>
@@ -408,7 +516,7 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className={styles.summaryTotal}>
-                <span>Tổng cộng tạm tính</span>
+                <span>Tổng cộng dự kiến</span>
                 <span>{subtotal.toLocaleString("vi-VN")}đ</span>
               </div>
 
@@ -416,52 +524,93 @@ export default function CheckoutPage() {
                 <button
                   type="button"
                   className={styles.primaryButton}
-                  disabled={items.length === 0 || submitting}
-                  onClick={() => void handlePlaceOrder()}
+                  disabled={submitting || items.length === 0}
+                  onClick={() => void handlePlaceOrderAndPay()}
                   data-testid="submit-order-btn"
                 >
                   {submitting
-                    ? "Đang kiểm tra tồn kho & tạo đơn..."
-                    : "Tiến hành đặt đơn"}
+                    ? "Đang khởi tạo đơn & mã thanh toán..."
+                    : "Tiến hành đặt đơn & Thanh toán ngay"}
                 </button>
               </div>
             </section>
           </>
         )}
 
-        {process.env.NODE_ENV === "development" && (
-          <aside className={styles.devBox}>
-            <strong>Công cụ Test độc lập (Chỉ hiện ở môi trường Dev):</strong>
-            <p style={{ margin: "6px 0 10px" }}>
-              Dùng để test tạo đơn ngay khi nhánh Giỏ hàng & Đăng nhập của đồng
-              đội chưa gộp vào develop.
-            </p>
-            <div className={styles.promoRow} style={{ marginBottom: "10px" }}>
-              <input
-                type="text"
-                className={styles.input}
-                placeholder="Dán JWT Token kiểm thử vào đây..."
-                value={devTokenInput}
-                onChange={(e) => setDevTokenInput(e.target.value)}
-              />
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={handleSaveDevToken}
-              >
-                Lưu Token
-              </button>
-            </div>
+        {activeQrPayment && token && (
+          <VietQrPaymentModal
+            payment={activeQrPayment}
+            token={token}
+            onPaymentSucceeded={handlePaymentSucceeded}
+            onPaymentFailed={handlePaymentFailed}
+            onClose={() => setActiveQrPayment(null)}
+          />
+        )}
+
+        <aside className={styles.devBox}>
+          <strong>Công cụ Kiểm thử nhanh (Dev / Sandbox Mode):</strong>
+          <div style={{ marginTop: "8px" }}>
+            <label
+              htmlFor="simulate-scenario-select"
+              style={{ display: "block", marginBottom: "4px", fontWeight: 600 }}
+            >
+              Chế độ xử lý khi bấm Thanh toán:
+            </label>
+            <select
+              id="simulate-scenario-select"
+              className={styles.input}
+              style={{ width: "100%" }}
+              value={simulateScenario}
+              onChange={(e) =>
+                setSimulateScenario(
+                  e.target.value as PaymentSimulationScenario
+                )
+              }
+              data-testid="simulate-scenario-select"
+            >
+              <option value="QR">
+                Mở mã QR VietQR + Polling &amp; SePay Sandbox Webhook (Mặc định)
+              </option>
+              <option value="SUCCESS">
+                Thanh toán Ví/Thẻ mô phỏng thành công tức thì (SUCCESS)
+              </option>
+              <option value="MOCK_FAIL">
+                Giả lập giao dịch bị từ chối / thiếu số dư (MOCK_FAIL - 400)
+              </option>
+              <option value="TIMEOUT">
+                Giả lập nghẽn mạng cổng thanh toán (TIMEOUT - 504)
+              </option>
+            </select>
+          </div>
+
+          <div className={styles.actionRow}>
             <button
               type="button"
               className={styles.secondaryButton}
               onClick={() => void handleLoadSampleCart()}
             >
-              Nạp 2 món mẫu từ API GET /products
+              Nạp 2 món mẫu từ API vào giỏ
             </button>
-          </aside>
-        )}
+          </div>
+          <div className={styles.promoRow} style={{ marginTop: "10px" }}>
+            <input
+              type="text"
+              className={styles.input}
+              placeholder="Dán Bearer JWT Token để kiểm thử..."
+              value={devTokenInput}
+              onChange={(e) => setDevTokenInput(e.target.value)}
+            />
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={handleSaveDevToken}
+            >
+              Lưu Token
+            </button>
+          </div>
+        </aside>
       </div>
     </main>
   );
 }
+
