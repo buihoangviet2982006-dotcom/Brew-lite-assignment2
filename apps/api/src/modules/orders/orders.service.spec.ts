@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { OrderStatus, ProductSize } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,33 +7,39 @@ import { PrismaService } from '../../prisma/prisma.service';
 describe('OrdersService (FR-05)', () => {
   let service: OrdersService;
 
-  const mockTx = {
-    user: {
-      findUnique: jest.fn(),
-    },
-    product: {
-      findMany: jest.fn(),
-    },
-    topping: {
-      findMany: jest.fn(),
-    },
-    ingredient: {
-      updateMany: jest.fn(),
-    },
-    promotion: {
-      findUnique: jest.fn(),
-      updateMany: jest.fn(),
-    },
-    order: {
-      create: jest.fn(),
-    },
-  };
+const mockTx = {
+  user: {
+    findUnique: jest.fn(),
+  },
+  product: {
+    findMany: jest.fn(),
+  },
+  topping: {
+    findMany: jest.fn(),
+  },
+  ingredient: {
+    updateMany: jest.fn(),
+  },
+  promotion: {
+    findUnique: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  order: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+  },
+};
 
-  const mockPrismaService = {
-    $transaction: jest.fn((callback: (tx: typeof mockTx) => unknown) =>
-      callback(mockTx),
-    ),
-  };
+const mockPrismaService = {
+  $transaction: jest.fn((callback: (tx: typeof mockTx) => unknown) =>
+    callback(mockTx),
+  ),
+  order: {
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+  },
+};
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -210,5 +216,73 @@ describe('OrdersService (FR-05)', () => {
         ],
       }),
     ).rejects.toThrow(BadRequestException);
+  });
+  it('5. Lấy danh sách đơn hàng của người dùng thành công', async () => {
+    const mockOrders = [
+      {
+        id: 'order-123',
+        userId: 'user-1',
+        status: OrderStatus.PENDING,
+        subtotal: 98000,
+        discountAmount: 0,
+        total: 98000,
+        promotionId: null,
+        orderItems: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+
+    mockPrismaService.order.findMany.mockResolvedValue(mockOrders);
+
+    const result = await service.findOrdersByUser('user-1');
+
+    expect(mockPrismaService.order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1' },
+        orderBy: { createdAt: 'desc' },
+  }),
+  );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('order-123');
+  });
+
+  it('6. Lấy chi tiết đơn hàng của người dùng thành công', async () => {
+    const mockOrder = {
+      id: 'order-123',
+      userId: 'user-1',
+      status: OrderStatus.PENDING,
+      subtotal: 98000,
+      discountAmount: 0,
+      total: 98000,
+      promotionId: null,
+      orderItems: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockPrismaService.order.findFirst.mockResolvedValue(mockOrder);
+
+    const result = await service.findOrderById('user-1', 'order-123');
+
+    expect(mockPrismaService.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'order-123',
+          userId: 'user-1',
+        },
+      }),
+    );
+
+    expect(result.id).toBe('order-123');
+  });
+
+  it('7. Báo lỗi 404 khi đơn hàng không tồn tại hoặc không thuộc người dùng', async () => {
+    mockPrismaService.order.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.findOrderById('user-1', 'order-999'),
+    ).rejects.toThrow(NotFoundException);
   });
 });

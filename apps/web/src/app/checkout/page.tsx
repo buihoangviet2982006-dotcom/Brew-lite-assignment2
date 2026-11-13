@@ -194,7 +194,7 @@ export default function CheckoutPage() {
         setOutOfStockIds(apiErr.outOfStockProductIds ?? []);
         setErrorMessage(
           apiErr.message ||
-            "Một số sản phẩm trong giỏ đã hết hàng hoặc không đủ số lượng. Vui lòng cập nhật lại giỏ hàng."
+          "Một số sản phẩm trong giỏ đã hết hàng hoặc không đủ số lượng. Vui lòng cập nhật lại giỏ hàng."
         );
       } else {
         // Lỗi thanh toán 400 / 504 -> đơn đã được rollback kho, reset createdOrder để khách thử lại
@@ -204,7 +204,7 @@ export default function CheckoutPage() {
         setCreatedOrder(null);
         setErrorMessage(
           apiErr.message ||
-            "Thanh toán không thành công. Giỏ hàng của bạn vẫn được giữ nguyên để thử lại."
+          "Thanh toán không thành công. Giỏ hàng của bạn vẫn được giữ nguyên để thử lại."
         );
       }
     } finally {
@@ -336,12 +336,24 @@ export default function CheckoutPage() {
                 ? " (Đã chặn xử lý trùng lặp Idempotency)"
                 : ""}
             </p>
-
+            
             <div className={styles.actionRow}>
+              <Link
+                href={`/orders/${encodeURIComponent(completedPayment.orderId)}`}
+                className={styles.secondaryButton}
+              >
+                Xem chi tiết đơn hàng
+              </Link>
+
+              <Link href="/orders" className={styles.secondaryButton}>
+                Lịch sử đơn hàng
+              </Link>
+
               <Link href="/menu" className={styles.secondaryButton}>
                 Tiếp tục chọn món mới
               </Link>
             </div>
+
           </section>
         ) : items.length === 0 ? (
           <section
@@ -391,9 +403,8 @@ export default function CheckoutPage() {
                   return (
                     <div
                       key={item.key}
-                      className={`${styles.itemRow} ${
-                        isOutOfStock ? styles.itemOutOfStock : ""
-                      }`}
+                      className={`${styles.itemRow} ${isOutOfStock ? styles.itemOutOfStock : ""
+                        }`}
                     >
                       <div className={styles.itemInfo}>
                         <h3 className={styles.itemName}>{item.name}</h3>

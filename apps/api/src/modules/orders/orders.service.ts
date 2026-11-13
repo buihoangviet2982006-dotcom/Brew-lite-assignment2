@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common';
 import { OrderStatus, ProductSize } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -376,5 +377,166 @@ export class OrdersService {
         updatedAt: createdOrder.updatedAt,
       };
     });
+  }
+
+  // 8. LẤY LỊCH SỬ ĐƠN HÀNG 
+  async findOrdersByUser(userId: string) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        userId,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                imageUrl: true,
+              },
+            },
+            toppings: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return orders.map((order) => ({
+      id: order.id,
+      orderId: order.id,
+      status: order.status,
+
+      subtotal: Number(order.subtotal),
+      discountAmount: Number(order.discountAmount),
+      total: Number(order.total),
+
+      promotionId: order.promotionId,
+
+      itemCount: order.orderItems.reduce(
+        (sum, item) => sum + item.quantity,
+        0,
+      ),
+
+      orderItems: order.orderItems.map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        size: item.size,
+        quantity: item.quantity,
+        lineTotal: Number(item.lineTotal),
+
+        product: item.product
+          ? {
+              id: item.product.id,
+              name: item.product.name,
+              price: Number(item.product.price),
+              imageUrl: item.product.imageUrl,
+            }
+          : undefined,
+
+        toppings: item.toppings.map((topping) => ({
+          id: topping.id,
+          name: topping.name,
+          price: Number(topping.price),
+        })),
+      })),
+
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    }));
+  }
+  
+  // 9. XEM CHI TIẾT ĐƠN HÀNG
+  async findOrderById(
+    userId: string,
+    orderId: string,
+  ) {
+    if (!orderId || !orderId.trim()) {
+      throw new BadRequestException(
+        'Mã đơn hàng không hợp lệ',
+      );
+    }
+
+    const order = await this.prisma.order.findFirst({
+      where: {
+        id: orderId,
+        userId,
+      },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                imageUrl: true,
+              },
+            },
+            toppings: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(
+        'Không tìm thấy đơn hàng',
+      );
+    }
+
+    return {
+      id: order.id,
+      orderId: order.id,
+      userId: order.userId,
+      status: order.status,
+
+      subtotal: Number(order.subtotal),
+      discountAmount: Number(order.discountAmount),
+      total: Number(order.total),
+
+      promotionId: order.promotionId,
+
+      orderItems: order.orderItems.map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        size: item.size,
+        quantity: item.quantity,
+        lineTotal: Number(item.lineTotal),
+
+        product: item.product
+          ? {
+              id: item.product.id,
+              name: item.product.name,
+              price: Number(item.product.price),
+              imageUrl: item.product.imageUrl,
+            }
+          : undefined,
+
+        toppings: item.toppings.map((topping) => ({
+          id: topping.id,
+          name: topping.name,
+          price: Number(topping.price),
+        })),
+      })),
+
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    };
   }
 }

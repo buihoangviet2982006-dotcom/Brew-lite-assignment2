@@ -5,6 +5,8 @@ import type {
   CreatedOrderResponse,
   CreateOrderPayload,
   ProductSize,
+  OrderHistoryItem,
+  OrderDetailResponse,
 } from "../types/order";
 
 const API_URL = (
@@ -228,4 +230,81 @@ export async function createOrder(
     } satisfies CreateOrderApiError;
   }
 }
+// Lấy lịch sử đơn hàng của người dùng đang đăng nhập
+export async function getMyOrders(
+  token: string
+): Promise<OrderHistoryItem[]> {
+  try {
+    const response = await axios.get<OrderHistoryItem[]>(
+      `${API_URL}/orders`,
+      {
+        timeout: 10000,
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
 
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const data = error.response?.data as
+        | { message?: string | string[] }
+        | undefined;
+
+      const rawMessage = data?.message;
+
+      throw {
+        status: error.response?.status,
+        message: Array.isArray(rawMessage)
+          ? rawMessage.join(". ")
+          : rawMessage || "Không thể tải lịch sử đơn hàng.",
+      };
+    }
+
+    throw {
+      message: "Lỗi kết nối máy chủ khi tải lịch sử đơn hàng.",
+    };
+  }
+}
+
+// Lấy chi tiết một đơn hàng
+export async function getMyOrder(
+  orderId: string,
+  token: string
+): Promise<OrderDetailResponse> {
+  try {
+    const response = await axios.get<OrderDetailResponse>(
+      `${API_URL}/orders/${encodeURIComponent(orderId)}`,
+      {
+        timeout: 10000,
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const data = error.response?.data as
+        | { message?: string | string[] }
+        | undefined;
+
+      const rawMessage = data?.message;
+
+      throw {
+        status: error.response?.status,
+        message: Array.isArray(rawMessage)
+          ? rawMessage.join(". ")
+          : rawMessage || "Không thể tải chi tiết đơn hàng.",
+      };
+    }
+
+    throw {
+      message: "Lỗi kết nối máy chủ khi tải chi tiết đơn hàng.",
+    };
+  }
+}

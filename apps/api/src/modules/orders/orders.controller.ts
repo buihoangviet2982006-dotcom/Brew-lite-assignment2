@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import {
   AuthenticatedRequest,
@@ -16,6 +16,22 @@ export class OrdersController {
     @Req() req: AuthenticatedRequest,
     @Body() createOrderDto: CreateOrderDto,
   ) {
-    return this.ordersService.createOrder(req.user.id, createOrderDto);
+    return this.ordersService.createOrder(req.user.id, createOrderDto); 
+  }
+@Get()
+@UseGuards(OrderJwtAuthGuard)
+async findMyOrders(@Req() req: AuthenticatedRequest) {
+  return this.ordersService.findOrdersByUser(req.user.id);
+  }
+@Get(':id')
+@UseGuards(OrderJwtAuthGuard)
+async findMyOrder(
+  @Req() req: AuthenticatedRequest,
+  @Param('id') orderId: string,
+) {
+  return this.ordersService.findOrderById(
+    req.user.id,
+    orderId,
+  );
   }
 }
