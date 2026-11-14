@@ -9,12 +9,12 @@ import {
   calculateConfiguredTotalPrice,
   calculateConfiguredUnitPrice,
   validateProductOptions,
-} from "../../utils/product-options.ts";
+} from "../../utils/product-options";
 import type {
   SelectedProductOptions,
   SizeOption,
   ToppingOption,
-} from "../../utils/product-options.ts";
+} from "../../utils/product-options";
 
 interface ProductOptionSelectorProps {
   productId: string;
