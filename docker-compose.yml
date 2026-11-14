@@ -1,3 +1,5 @@
+name: brewlite2
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,11 +13,73 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - brewlite2_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-brewlite} -d ${POSTGRES_DB:-brewlite2_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    image: brewlite2-api:latest
+    container_name: brewlite2_api
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "${PORT:-4000}:4000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-brewlite}:${POSTGRES_PASSWORD:-brewlite_secret}@postgres:5432/${POSTGRES_DB:-brewlite2_db}?schema=public
+      PORT: 4000
+      NODE_ENV: ${NODE_ENV:-production}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      SEPAY_API_BASE_URL: ${SEPAY_API_BASE_URL:-https://userapi-sandbox.sepay.vn/v2}
+      SEPAY_API_TOKEN: ${SEPAY_API_TOKEN:-}
+      SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-sepay_sandbox_secret_2026}
+      VIETQR_BANK_ID: ${VIETQR_BANK_ID:-MB}
+      VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:-0123456789}
+      VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:-BREWLITE COFFEE}
+      VIETQR_TEMPLATE: ${VIETQR_TEMPLATE:-compact2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - brewlite2_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/products >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web:
+    image: brewlite2-web:latest
+    container_name: brewlite2_web
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-BrewLite}
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-BrewLite}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - brewlite2_net
+
+networks:
+  brewlite2_net:
+    driver: bridge
 
 volumes:
   postgres_data:
