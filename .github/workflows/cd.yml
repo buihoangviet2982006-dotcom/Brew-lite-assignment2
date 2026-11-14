@@ -1,0 +1,82 @@
+
+name: Continuous Deployment - Health Check & Smoke Test
+
+on:
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types:
+      - completed
+    branches:
+      - main
+      - develop
+
+jobs:
+  post-deploy-test:
+    name: Health Check & Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      # 1. Kiểm tra Backend và Database
+      - name: Health Check - Backend API
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          if [ -z "$API_BASE_URL" ]; then
+            echo "ERROR: API_BASE_URL is missing!"
+            exit 1
+          fi
+
+          echo "Starting Health Check..."
+
+          for i in $(seq 1 25); do
+            RESPONSE=$(curl -sS --max-time 10 \
+              "$API_BASE_URL/health" || true)
+
+            echo "Health Check attempt $i/25"
+
+            if echo "$RESPONSE" | jq -e '.status == "ok"' > /dev/null 2>&1; then
+              echo "Health Check PASSED!"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Health Check FAILED!"
+          exit 1
+
+      # 2. Kiểm tra API sản phẩm
+      - name: Smoke Test - Products API
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          echo "Starting Products API Smoke Test..."
+
+          HTTP_STATUS=$(curl -sS \
+            -o response.json \
+            -w "%{http_code}" \
+            --max-time 15 \
+            "$API_BASE_URL/products")
+
+          echo "HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Smoke Test FAILED!"
+            cat response.json
+            exit 1
+          fi
+
+          echo "Smoke Test PASSED!"
+
+      # 3. Xác nhận kết quả
+      - name: Deployment Verification
+        if: success()
+        run: |
+          echo "=================================="
+          echo "BREWLITE DEPLOYMENT VERIFICATION"
+          echo "Health Check: PASSED"
+          echo "Smoke Test: PASSED"
+          echo "=================================="
