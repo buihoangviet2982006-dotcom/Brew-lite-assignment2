@@ -14,8 +14,10 @@ export interface CheckoutCartItem {
   basePrice: number;
   imageUrl?: string;
   size: ProductSize;
+  sizeExtraPrice?: number;
   quantity: number;
   toppings: CheckoutTopping[];
+  note?: string;
 }
 
 export interface CreateOrderItemPayload {

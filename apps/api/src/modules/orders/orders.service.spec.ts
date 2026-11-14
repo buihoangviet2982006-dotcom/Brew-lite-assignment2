@@ -87,9 +87,9 @@ const mockPrismaService = {
       id: 'order-123',
       userId: 'user-1',
       status: OrderStatus.PENDING,
-      subtotal: 98000,
+      subtotal: 110000,
       discountAmount: 0,
-      total: 98000,
+      total: 110000,
       promotionId: null,
       orderItems: [
         {
@@ -97,7 +97,7 @@ const mockPrismaService = {
           productId: 'prod-1',
           size: ProductSize.M,
           quantity: 2,
-          lineTotal: 98000,
+          lineTotal: 110000,
           product: {
             id: 'prod-1',
             name: 'Cà phê sữa đá BrewLite',
@@ -133,9 +133,17 @@ const mockPrismaService = {
         version: { increment: 1 },
       },
     });
+    expect(mockTx.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          subtotal: 110000,
+          total: 110000,
+        }),
+      }),
+    );
     expect(result.orderId).toBe('order-123');
     expect(result.status).toBe(OrderStatus.PENDING);
-    expect(result.total).toBe(98000);
+    expect(result.total).toBe(110000);
   });
 
   it('2. Ném lỗi 409 Conflict và Rollback khi nguyên liệu không đủ tồn kho', async () => {

@@ -131,4 +131,18 @@ export class ProductsService {
       updatedAt: product.updatedAt,
     };
   }
+
+  async findAllToppings() {
+    const toppings = await this.prisma.topping.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return toppings.map((topping) => ({
+      id: topping.id,
+      name: topping.name,
+      price: Number(topping.price),
+      imageUrl: topping.imageUrl,
+      isAvailable: topping.isAvailable,
+    }));
+  }
 }

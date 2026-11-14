@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   MAX_NOTE_LENGTH,
   MAX_TOPPINGS_PER_ITEM,
@@ -15,6 +16,7 @@ import type {
   SizeOption,
   ToppingOption,
 } from "../../utils/product-options";
+import { useCartStore } from "../../store/cart.store";
 
 interface ProductOptionSelectorProps {
   productId: string;
@@ -23,6 +25,7 @@ interface ProductOptionSelectorProps {
   imageUrl?: string;
   stockQuantity?: number;
   isAvailable?: boolean;
+  availableToppings?: ToppingOption[];
   onConfirmAdd?: (selection: SelectedProductOptions) => void;
 }
 
@@ -33,13 +36,24 @@ export function ProductOptionSelector({
   imageUrl,
   stockQuantity = 20,
   isAvailable = true,
+  availableToppings,
   onConfirmAdd,
 }: ProductOptionSelectorProps) {
+  const toppingsList = useMemo(
+    () =>
+      availableToppings && availableToppings.length > 0
+        ? availableToppings
+        : PRODUCT_TOPPINGS,
+    [availableToppings]
+  );
+
   const [selectedSize, setSelectedSize] = useState<SizeOption>(PRODUCT_SIZES[0]);
   const [selectedToppings, setSelectedToppings] = useState<ToppingOption[]>([]);
   const [quantity, setQuantity] = useState<number>(1);
   const [note, setNote] = useState<string>("");
   const [feedbackMessage, setFeedbackMessage] = useState<string>("");
+
+  const addItem = useCartStore((state) => state.addItem);
 
   const validation = useMemo(
     () =>
@@ -70,6 +84,7 @@ export function ProductOptionSelector({
   );
 
   const handleToggleTopping = (topping: ToppingOption) => {
+    if (!topping.isAvailable) return;
     setFeedbackMessage("");
     const exists = selectedToppings.some((item) => item.id === topping.id);
     if (exists) {
@@ -98,6 +113,7 @@ export function ProductOptionSelector({
     event.preventDefault();
     if (!validation.isValid || !isAvailable) return;
 
+    const trimmedNote = note.trim();
     const payload: SelectedProductOptions = {
       productId,
       productName,
@@ -106,55 +122,30 @@ export function ProductOptionSelector({
       size: selectedSize,
       toppings: selectedToppings,
       quantity,
-      note: note.trim(),
+      note: trimmedNote,
       unitPrice,
       totalPrice,
     };
 
-    // Lưu tương thích vào localStorage để bên Giỏ hàng (nếu có) tự đọc được mà không cần import chéo
+    addItem({
+      productId,
+      name: productName,
+      basePrice,
+      imageUrl,
+      size: selectedSize.code,
+      sizeExtraPrice: selectedSize.extraPrice,
+      quantity,
+      toppings: selectedToppings.map((t) => ({
+        id: t.id,
+        name: t.name,
+        price: t.price,
+      })),
+      note: trimmedNote,
+      maxStock: stockQuantity,
+    });
+
     if (typeof window !== "undefined") {
-      try {
-        const rawCart = window.localStorage.getItem("brewlite_cart_v1");
-        const parsed = rawCart ? JSON.parse(rawCart) : { items: [] };
-        const currentItems = Array.isArray(parsed.items) ? parsed.items : [];
-        const sortedIds = [...selectedToppings]
-          .map((t) => t.id)
-          .sort()
-          .join(",");
-        const cartItemId = `${productId}__${selectedSize.code}__${sortedIds}`;
-
-        const existingIdx = currentItems.findIndex(
-          (i: { cartItemId?: string }) => i.cartItemId === cartItemId
-        );
-
-        if (existingIdx > -1) {
-          currentItems[existingIdx].quantity += quantity;
-        } else {
-          currentItems.push({
-            cartItemId,
-            productId,
-            name: productName,
-            imageUrl,
-            basePrice,
-            size: { name: selectedSize.code, extraPrice: selectedSize.extraPrice },
-            toppings: selectedToppings.map((t) => ({
-              id: t.id,
-              name: t.name,
-              price: t.price,
-            })),
-            quantity,
-            note: note.trim(),
-          });
-        }
-
-        window.localStorage.setItem(
-          "brewlite_cart_v1",
-          JSON.stringify({ ...parsed, items: currentItems })
-        );
-        window.dispatchEvent(new Event("brewlite-cart-updated"));
-      } catch {
-        // Bỏ qua nếu trình duyệt chặn localStorage
-      }
+      window.dispatchEvent(new Event("brewlite-cart-updated"));
     }
 
     if (onConfirmAdd) {
@@ -288,7 +279,7 @@ export function ProductOptionSelector({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {PRODUCT_TOPPINGS.map((topping) => {
+          {toppingsList.map((topping) => {
             const isChecked = selectedToppings.some((t) => t.id === topping.id);
             return (
               <label
@@ -317,6 +308,7 @@ export function ProductOptionSelector({
                   />
                   <span style={{ fontSize: "14px", fontWeight: isChecked ? 700 : 500 }}>
                     {topping.name}
+                    {!topping.isAvailable ? " (Tạm hết)" : ""}
                   </span>
                 </div>
 
@@ -505,8 +497,8 @@ export function ProductOptionSelector({
           role="status"
           data-testid="add-to-cart-feedback"
           style={{
-            padding: "12px 16px",
-            borderRadius: "10px",
+            padding: "14px 16px",
+            borderRadius: "12px",
             background: "#edf7ed",
             color: "#1e6b24",
             fontSize: "14px",
@@ -514,7 +506,47 @@ export function ProductOptionSelector({
             textAlign: "center",
           }}
         >
-          ✅ {feedbackMessage}
+          <div>✅ {feedbackMessage}</div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: "10px",
+              marginTop: "10px",
+              flexWrap: "wrap",
+            }}
+          >
+            <Link
+              href="/cart"
+              data-testid="go-to-cart-link"
+              style={{
+                padding: "8px 14px",
+                borderRadius: "8px",
+                background: "#1e6b24",
+                color: "#ffffff",
+                fontSize: "13px",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              Xem giỏ hàng →
+            </Link>
+            <Link
+              href="/menu"
+              style={{
+                padding: "8px 14px",
+                borderRadius: "8px",
+                border: "1px solid #1e6b24",
+                background: "#ffffff",
+                color: "#1e6b24",
+                fontSize: "13px",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              Chọn thêm món
+            </Link>
+          </div>
         </div>
       )}
     </form>

@@ -86,6 +86,8 @@ function normalizeCartEntry(
   const rawSize = String(raw.size ?? "M").toUpperCase();
   const size: ProductSize =
     rawSize === "S" || rawSize === "M" || rawSize === "L" ? rawSize : "M";
+  const defaultSizeExtra = size === "M" ? 6000 : size === "L" ? 10000 : 0;
+  const sizeExtraPrice = Number(raw.sizeExtraPrice ?? defaultSizeExtra);
 
   const quantity = Math.max(1, Math.floor(Number(raw.quantity ?? raw.qty ?? 1)));
 
@@ -105,6 +107,8 @@ function normalizeCartEntry(
     })
     .filter((t): t is CheckoutTopping => t !== null);
 
+  const note = typeof raw.note === "string" ? raw.note.trim() : "";
+
   return {
     key: String(
       raw.key ??
@@ -115,8 +119,10 @@ function normalizeCartEntry(
     basePrice: Number.isFinite(basePrice) ? basePrice : 0,
     imageUrl: String(raw.imageUrl ?? productObj?.imageUrl ?? ""),
     size,
+    sizeExtraPrice: Number.isFinite(sizeExtraPrice) ? sizeExtraPrice : 0,
     quantity,
     toppings,
+    ...(note ? { note } : {}),
   };
 }
 

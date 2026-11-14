@@ -204,60 +204,28 @@ describe('MenuPage Component & Main Flow (Task 4.3 MVP Sprint 1)', () => {
     expect(container.textContent).not.toContain('Trà Đào Cam Sả');
   });
 
-  it('7. Luồng giỏ hàng: thêm, sửa số lượng, tính tổng và xóa món', async () => {
+  it('7. Giỏ hàng tách riêng khỏi trang Menu: có badge Giỏ hàng trỏ về /cart và nút Chọn món trỏ về /menu/[id]', async () => {
     vi.mocked(productApi.getProducts).mockResolvedValueOnce(mockProducts);
 
     await act(async () => {
       root.render(<MenuPage />);
     });
 
-    const addButton = container.querySelector(
-      '[aria-label="Thêm Cà phê Sữa Đá vào giỏ hàng"]'
-    ) as HTMLButtonElement;
-    const total = container.querySelector(
-      '[data-testid="cart-total"]'
-    );
-    const cartCount = container.querySelector(
-      '[data-testid="cart-count"]'
-    );
+    // Không còn phần giỏ hàng nhúng trực tiếp ở cuối trang menu
+    expect(container.querySelector('[data-testid="cart-total"]')).toBeNull();
 
-    await act(async () => {
-      addButton.click();
-      addButton.click();
-    });
+    // Có nút Giỏ hàng trên header trỏ sang /cart
+    const cartLink = container.querySelector(
+      '[data-testid="menu-cart-link"]'
+    ) as HTMLAnchorElement;
+    expect(cartLink).not.toBeNull();
+    expect(cartLink.getAttribute('href')).toBe('/cart');
 
-    expect(cartCount?.textContent).toBe('2 món');
-    expect(total?.textContent).toBe('58.000đ');
-
-    const increaseButton = container.querySelector(
-      '[aria-label="Tăng số lượng Cà phê Sữa Đá"]'
-    ) as HTMLButtonElement;
-
-    await act(async () => {
-      increaseButton.click();
-    });
-
-    expect(total?.textContent).toBe('87.000đ');
-
-    const decreaseButton = container.querySelector(
-      '[aria-label="Giảm số lượng Cà phê Sữa Đá"]'
-    ) as HTMLButtonElement;
-
-    await act(async () => {
-      decreaseButton.click();
-    });
-
-    expect(total?.textContent).toBe('58.000đ');
-
-    const removeButton = container.querySelector(
-      '[aria-label="Xóa Cà phê Sữa Đá khỏi giỏ hàng"]'
-    ) as HTMLButtonElement;
-
-    await act(async () => {
-      removeButton.click();
-    });
-
-    expect(total?.textContent).toBe('0đ');
-    expect(container.textContent).toContain('Giỏ hàng đang trống.');
+    // Nút Chọn món của sản phẩm còn hàng trỏ sang /menu/prod-1
+    const selectLink = container.querySelector(
+      '[data-testid="select-product-prod-1"]'
+    ) as HTMLAnchorElement;
+    expect(selectLink).not.toBeNull();
+    expect(selectLink.getAttribute('href')).toBe('/menu/prod-1');
   });
 });

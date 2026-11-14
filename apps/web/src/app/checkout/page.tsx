@@ -16,6 +16,10 @@ import {
   getOrCreateIdempotencyKey,
   initiatePayment,
 } from "../../lib/payment-api";
+import {
+  SIZE_EXTRA_PRICE_MAP,
+  useCartStore,
+} from "../../store/cart.store";
 import { VietQrPaymentModal } from "../../components/checkout/VietQrPaymentModal";
 import type {
   CheckoutCartItem,
@@ -59,11 +63,13 @@ export default function CheckoutPage() {
 
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => {
+      const sizeExtra =
+        item.sizeExtraPrice ?? SIZE_EXTRA_PRICE_MAP[item.size] ?? 0;
       const toppingsPrice = item.toppings.reduce(
         (tSum, t) => tSum + t.price,
         0
       );
-      return sum + (item.basePrice + toppingsPrice) * item.quantity;
+      return sum + (item.basePrice + sizeExtra + toppingsPrice) * item.quantity;
     }, 0);
   }, [items]);
 
@@ -97,6 +103,7 @@ export default function CheckoutPage() {
     (finalPayment: PaymentResultResponse) => {
       setActiveQrPayment(null);
       setCompletedPayment(finalPayment);
+      useCartStore.getState().clearCart();
       clearCheckoutCart();
       setItems([]);
       setErrorMessage("");
@@ -393,12 +400,14 @@ export default function CheckoutPage() {
               <div className={styles.itemList}>
                 {items.map((item) => {
                   const isOutOfStock = outOfStockIds.includes(item.productId);
+                  const sizeExtra =
+                    item.sizeExtraPrice ?? SIZE_EXTRA_PRICE_MAP[item.size] ?? 0;
                   const toppingsSum = item.toppings.reduce(
                     (s, t) => s + t.price,
                     0
                   );
                   const lineTotal =
-                    (item.basePrice + toppingsSum) * item.quantity;
+                    (item.basePrice + sizeExtra + toppingsSum) * item.quantity;
 
                   return (
                     <div

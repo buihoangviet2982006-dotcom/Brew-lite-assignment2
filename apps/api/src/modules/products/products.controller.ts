@@ -10,6 +10,11 @@ export class ProductsController {
     return this.productsService.findAll();
   }
 
+  @Get('toppings')
+  async findAllToppings() {
+    return this.productsService.findAllToppings();
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.productsService.findOne(id);
