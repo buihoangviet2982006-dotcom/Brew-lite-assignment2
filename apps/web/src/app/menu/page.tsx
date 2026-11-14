@@ -9,8 +9,15 @@ import { getProducts } from "../../lib/product-api";
 import type { Product } from "../../types/product";
 import styles from "./menu.module.css";
 
+interface CartItem {
+  product: Product;
+  quantity: number;
+}
+
+
 export default function MenuPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [keyword, setKeyword] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Tất cả");
   const [loading, setLoading] = useState(true);
@@ -76,6 +83,52 @@ export default function MenuPage() {
       return matchesKeyword && matchesCategory;
     });
   }, [products, keyword, selectedCategory]);
+
+  const cartTotal = useMemo(
+    () =>
+      cartItems.reduce(
+        (total, item) => total + item.product.basePrice * item.quantity,
+        0
+      ),
+    [cartItems]
+  );
+
+  const addToCart = useCallback((product: Product) => {
+    setCartItems((currentItems) => {
+      const existingItem = currentItems.find(
+        (item) => item.product.id === product.id
+      );
+
+      if (existingItem) {
+        return currentItems.map((item) =>
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      }
+
+      return [...currentItems, { product, quantity: 1 }];
+    });
+  }, []);
+
+  const changeCartQuantity = useCallback(
+    (productId: string, change: number) => {
+      setCartItems((currentItems) =>
+        currentItems.map((item) =>
+          item.product.id === productId
+            ? { ...item, quantity: Math.max(1, item.quantity + change) }
+            : item
+        )
+      );
+    },
+    []
+  );
+
+  const removeFromCart = useCallback((productId: string) => {
+    setCartItems((currentItems) =>
+      currentItems.filter((item) => item.product.id !== productId)
+    );
+  }, []);
 
   return (
     <main className={styles.container}>
@@ -181,10 +234,84 @@ export default function MenuPage() {
               <ProductCard
                 key={product.id}
                 product={product}
+                onAddToCart={addToCart}
               />
             ))}
           </div>
         )}
+      </section>
+
+      <section className={styles.cartSection} aria-labelledby="cart-title">
+        <div className={styles.sectionHeading}>
+          <h2 className={styles.sectionTitle} id="cart-title">
+            Giỏ hàng
+          </h2>
+          <span data-testid="cart-count">
+            {cartItems.reduce((count, item) => count + item.quantity, 0)} món
+          </span>
+        </div>
+
+        {cartItems.length === 0 ? (
+          <p className={styles.cartEmpty}>Giỏ hàng đang trống.</p>
+        ) : (
+          <ul className={styles.cartList}>
+            {cartItems.map((item) => (
+              <li className={styles.cartItem} key={item.product.id}>
+                <div className={styles.cartProduct}>
+                  <strong>{item.product.name}</strong>
+                  <span>
+                    {item.product.basePrice.toLocaleString("vi-VN")}đ / món
+                  </span>
+                </div>
+
+                <div
+                  className={styles.quantityControls}
+                  aria-label={`Số lượng ${item.product.name}`}
+                >
+                  <button
+                    type="button"
+                    aria-label={`Giảm số lượng ${item.product.name}`}
+                    disabled={item.quantity <= 1}
+                    onClick={() => changeCartQuantity(item.product.id, -1)}
+                  >
+                    −
+                  </button>
+                  <span aria-live="polite">{item.quantity}</span>
+                  <button
+                    type="button"
+                    aria-label={`Tăng số lượng ${item.product.name}`}
+                    onClick={() => changeCartQuantity(item.product.id, 1)}
+                  >
+                    +
+                  </button>
+                </div>
+
+                <strong>
+                  {(item.product.basePrice * item.quantity).toLocaleString(
+                    "vi-VN"
+                  )}
+                  đ
+                </strong>
+
+                <button
+                  className={styles.removeButton}
+                  type="button"
+                  aria-label={`Xóa ${item.product.name} khỏi giỏ hàng`}
+                  onClick={() => removeFromCart(item.product.id)}
+                >
+                  Xóa
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className={styles.cartTotal} aria-live="polite">
+          Tổng tiền:{" "}
+          <strong data-testid="cart-total">
+            {cartTotal.toLocaleString("vi-VN")}đ
+          </strong>
+        </p>
       </section>
     </main>
   );

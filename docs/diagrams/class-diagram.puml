@@ -38,6 +38,7 @@ enum IngredientUnit {
 
 class User {
   - id : String
+  - name : String
   - email : String
   - passwordHash : String
   - loyaltyPoints : Int
