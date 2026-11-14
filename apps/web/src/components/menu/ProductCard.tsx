@@ -1,10 +1,10 @@
-
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import type { Product } from "../../types/product";
 
 interface ProductCardProps {
   product: Product;
-  onAddToCart: (product: Product) => void;
+  onAddToCart?: (product: Product) => void;
 }
 
 const cardStyle: CSSProperties = {
@@ -35,12 +35,17 @@ const infoStyle: CSSProperties = {
 };
 
 const buttonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
   border: "none",
   borderRadius: "10px",
   padding: "10px 14px",
   background: "#70452c",
   color: "#ffffff",
+  fontSize: "14px",
   fontWeight: 600,
+  textDecoration: "none",
   cursor: "pointer",
 };
 
@@ -59,6 +64,7 @@ export default function ProductCard({
     <article style={cardStyle}>
       <div style={{ position: "relative" }}>
         {product.imageUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={product.imageUrl}
             alt={product.name}
@@ -141,19 +147,38 @@ export default function ProductCard({
             {price.toLocaleString("vi-VN")}đ
           </strong>
 
-          <button
-            type="button"
-            disabled={!isAvailable}
-            aria-label={`Thêm ${product.name} vào giỏ hàng`}
-            onClick={() => onAddToCart(product)}
-            style={{
-              ...buttonStyle,
-              opacity: isAvailable ? 1 : 0.5,
-              cursor: isAvailable ? "pointer" : "not-allowed",
-            }}
-          >
-            {isAvailable ? "Chọn món" : "Hết hàng"}
-          </button>
+          {!isAvailable ? (
+            <button
+              type="button"
+              disabled
+              aria-label={`${product.name} đã hết hàng`}
+              style={{
+                ...buttonStyle,
+                opacity: 0.5,
+                cursor: "not-allowed",
+              }}
+            >
+              Hết hàng
+            </button>
+          ) : onAddToCart ? (
+            <button
+              type="button"
+              aria-label={`Chọn ${product.name}`}
+              onClick={() => onAddToCart(product)}
+              style={buttonStyle}
+            >
+              Chọn món
+            </button>
+          ) : (
+            <Link
+              href={`/menu/${product.id}`}
+              aria-label={`Chọn size và topping cho ${product.name}`}
+              data-testid={`select-product-${product.id}`}
+              style={buttonStyle}
+            >
+              Chọn món
+            </Link>
+          )}
         </div>
       </div>
     </article>

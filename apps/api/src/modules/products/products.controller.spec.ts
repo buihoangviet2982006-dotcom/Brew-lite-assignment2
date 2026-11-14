@@ -32,6 +32,15 @@ describe('ProductsController', () => {
   const mockProductsService = {
     findAll: jest.fn().mockResolvedValue(mockProductList),
     findOne: jest.fn().mockResolvedValue(mockProductList[0]),
+    findAllToppings: jest.fn().mockResolvedValue([
+      {
+        id: 'top-1',
+        name: 'Trân châu đường đen dẻo',
+        price: 10000,
+        imageUrl: '',
+        isAvailable: true,
+      },
+    ]),
   };
 
   beforeEach(async () => {
@@ -82,6 +91,16 @@ describe('ProductsController', () => {
       await expect(controller.findOne('non-existent')).rejects.toThrow(
         NotFoundException
       );
+    });
+  });
+
+  describe('GET /products/toppings', () => {
+    it('should return list of toppings', async () => {
+      const result = await controller.findAllToppings();
+
+      expect(service.findAllToppings).toHaveBeenCalled();
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Trân châu đường đen dẻo');
     });
   });
 });

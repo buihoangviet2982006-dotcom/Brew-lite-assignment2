@@ -9,11 +9,11 @@ import { OrderStatus, ProductSize } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 
-// Đồng bộ với dữ liệu mẫu trong prisma/seed.ts
+// Đồng bộ với bộ chọn Size trên Frontend (S: +0đ, M: +6.000đ, L: +10.000đ)
 export const SIZE_EXTRA_PRICE: Record<ProductSize, number> = {
   [ProductSize.S]: 0,
-  [ProductSize.M]: 0,
-  [ProductSize.L]: 0,
+  [ProductSize.M]: 6000,
+  [ProductSize.L]: 10000,
 };
 
 interface IngredientUsage {
