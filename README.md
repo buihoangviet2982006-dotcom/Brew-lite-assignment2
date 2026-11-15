@@ -452,7 +452,8 @@ Mỗi lần build qua pipeline CD sẽ tạo 2 image (`apps/api/Dockerfile` và 
    npm run prisma:deploy --workspace=@brewlite/api
 
    # (Chỉ chạy 1 lần khi DB trống) Khởi tạo dữ liệu mẫu 15 sản phẩm, 12 nguyên liệu, 6 topping, 4 promo
-   npm run db:seed --workspace=@brewlite/api
+   npm run db:seed
+   # Hoặc: npm run prisma:seed --workspace=@brewlite/api
    ```
 4. **Kiểm tra sau triển khai (Smoke Test):**
    ```bash
