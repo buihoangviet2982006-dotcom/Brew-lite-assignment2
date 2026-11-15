@@ -102,13 +102,15 @@ Brew-lite-assignment2/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                              # Pipeline CI: Install -> db:generate -> Lint -> Test -> Build
-│   │   └── cd.yml                              # Cấu hình Pipeline CD (Build/Tag Docker Image & Deploy)
+│   │   ├── cd.yml                              # Pipeline CD: Quality Gate -> Docker Image -> GHCR -> Migration -> Deploy -> Smoke Test -> Rollback
+│   │   └── cd-rollback-guard.yml               # Workflow Fail-Fast Gate & Kiểm thử Rollback tự động
 │   └── pull_request_template.md                # Mẫu checklist bắt buộc khi mở Pull Request
 ├── apps/
 │   ├── api/                                    # NestJS 10 Modular Monolith Backend (Port 4000)
 │   │   ├── prisma/
+│   │   │   ├── migrations/                     # SQL Migrations (20261114163354_init_brewlite_schema)
 │   │   │   ├── schema.prisma                   # Schema PostgreSQL (10 models + 5 enums)
-│   │   │   └── seed.ts                         # Script nạp dữ liệu mẫu toàn diện cho 10 bảng
+│   │   │   └── seed.ts                         # Script nạp dữ liệu mẫu (15 sản phẩm, 12 nguyên liệu, 6 toppings, 4 voucher)
 │   │   ├── src/
 │   │   │   ├── common/guards/                  # JwtAuthGuard dùng chung
 │   │   │   ├── modules/
@@ -150,14 +152,19 @@ Brew-lite-assignment2/
 │   ├── ci-evidence.md                          # [Task 4.4] Minh chứng triển khai Continuous Integration (CI)
 │   ├── traceability-matrix.md                  # [Task 8.1] Ma trận truy vết Yêu cầu ↔ Thiết kế ↔ Code ↔ Test
 │   ├── security-audit.md                       # [Task 5.4] Báo cáo rà soát bảo mật Repository & CI/CD Logs
-│   └── deployment.md                           # [Task 5.3/5.4] Tài liệu hướng dẫn triển khai Container Registry
+│   ├── sprint-review-retrospective.md          # [Task 5.4] Báo cáo Sprint Review & Sprint Retrospective
+│   ├── deployment/rollback-strategy.md         # [Task 5.3] Chiến lược Fail-Fast Gate & Rollback tự động
+│   └── deployment.md                           # [Task 5.3/5.4] Hướng dẫn triển khai Render, Vercel & Migration
+├── scripts/
+│   └── rollback-deploy.sh                      # Script tự động kích hoạt Rollback & ghi biên bản kiểm toán
 ├── tests/                                      # Kiểm thử End-to-End (Playwright)
 │   ├── e2e/
+│   │   └── order-checkout.spec.ts              # Kịch bản E2E toàn trình (Menu -> Xác nhận đơn PAID)
 │   └── playwright.config.ts
 ├── CHANGELOG.md                                # Nhật ký thay đổi & Release Notes v1.0.0 (Task 5.4)
 ├── .env.example                                # Biến môi trường mẫu chung toàn Monorepo
 ├── .gitignore
-├── docker-compose.yml                          # Khởi chạy PostgreSQL 16 (container brewlite2_postgres) ở Local
+├── docker-compose.yml                          # Khởi chạy đồng bộ PostgreSQL 16 + NestJS API + Next.js Web ở Local
 ├── package.json                                # NPM Workspaces & Scripts điều phối toàn Monorepo
 └── README.md                                   # Tài liệu hướng dẫn chính
 ```
@@ -194,33 +201,37 @@ cp apps/web/.env.example apps/web/.env.local
 
 > **Lưu ý trên Windows (PowerShell):** Bạn có thể dùng `Copy-Item .env.example .env`, `Copy-Item apps/api/.env.example apps/api/.env`, `Copy-Item apps/web/.env.example apps/web/.env.local`.
 
-**Bước 3: Khởi chạy cơ sở dữ liệu PostgreSQL 16 bằng Docker Compose**
+**Bước 3: Khởi chạy hệ thống bằng Docker Compose (PostgreSQL + API + Web)**
 
 ```bash
-docker compose up -d
+# Chạy toàn bộ 3 dịch vụ (postgres, api, web) ở local:
+docker compose up -d --build
+
+# Hoặc chỉ chạy PostgreSQL nếu muốn dev trực tiếp bằng npm run dev:
+docker compose up -d postgres
 ```
 
-Lệnh này khởi tạo container `brewlite2_postgres` từ image `postgres:16-alpine` trên cổng `5432` kèm persistent volume `postgres_data` và healthcheck tự động.
+Khi chạy `docker compose up -d --build`, container `brewlite2_postgres` mở cổng `5432`, `brewlite2_api` tự động chạy `prisma migrate deploy` và mở cổng `4000` (kèm healthcheck `/health`), và `brewlite2_web` mở cổng `3000`.
 
 **Bước 4: Khởi tạo Prisma Client, đồng bộ Schema và nạp dữ liệu mẫu (Seed Data)**
 
 ```bash
 npm run db:generate
-npm run db:push
+npm run db:deploy
 npm run db:seed
 ```
 
-> Nếu sử dụng quy trình tạo file SQL migration ở local, bạn có thể chạy `npm run db:migrate` thay cho `npm run db:push`.
+> Nếu cần tạo lại DB sạch từ đầu ở local, có thể dùng `npm run db:reset` hoặc `npm run db:setup`.
 
 Sau khi chạy `npm run db:seed`, script [`apps/api/prisma/seed.ts`](./apps/api/prisma/seed.ts) tự động làm sạch và khởi tạo dữ liệu mẫu cho cả **10 bảng**, gồm:
 
 | Nhóm dữ liệu | Chi tiết được khởi tạo sẵn |
 | :--- | :--- |
 | **Tài khoản kiểm thử** *(Mật khẩu chung: `Password123!`)* | • **Quản lý:** `manager@brewlite.vn` (100 điểm)<br>• **Barista:** `barista@brewlite.vn` (50 điểm)<br>• **Khách hàng 1:** `customer@brewlite.vn` (158 điểm, 2 đơn mẫu)<br>• **Khách hàng 2:** `customer2@brewlite.vn` (0 điểm, 1 đơn `PENDING`) |
-| **Kho nguyên liệu (6 món)** | Cà phê hạt Robusta Đắk Lắk (`12,000g`), Arabica Cầu Đất (`10,000g`), Sữa tươi Đà Lạt Milk (`20,000ml`), Sữa đặc (`15,000ml`), Bột Matcha Uji (`3,000g`), Nước đường mía (`10,000ml`) |
-| **Thực đơn & Công thức (5 món)** | `Espresso Intenso` (35.000đ), `Cà phê sữa đá BrewLite` (39.000đ), `Caffe Latte` (49.000đ), `Cappuccino Classic` (49.000đ), `Kyoto Matcha Latte` (55.000đ) kèm định lượng `RecipeItem` |
-| **Toppings (4 loại)** | Trân châu đường đen dẻo (10.000đ), Kem Cheese Macchiato (12.000đ), Thạch nha đam (10.000đ), Sốt Caramel thủ công (8.000đ) |
-| **Mã khuyến mãi (3 mã)** | `WELCOME10` (-10.000đ, đơn tối thiểu 40.000đ), `BREWLITE20` (-20.000đ, đơn tối thiểu 80.000đ), `FREESHIP` (-15.000đ, đơn tối thiểu 50.000đ) |
+| **Kho nguyên liệu (12 món)** | Cà phê hạt Robusta (`15,000g`), Arabica (`12,000g`), Sữa tươi (`30,000ml`), Sữa đặc (`18,000ml`), Matcha Uji (`4,000g`), Nước đường (`15,000ml`), Trà Oolong (`6,000g`), Trà đen Assam (`6,000g`), Sốt Chocolate Bỉ (`5,000ml`), Đào miếng (`5,000g`), Khoai môn (`4,000g`), và Mứt Yuzu (`0ml` — demo hết hàng) |
+| **Thực đơn & Công thức (15 món)** | 14 món sẵn sàng bán (*Espresso Intenso, Cà phê sữa đá BrewLite, Cà phê đen đá Sài Gòn, Bạc xỉu kem sữa đá, Americano Đá Lạnh, Caffe Latte, Cappuccino Classic, Caramel Macchiato, Mocha Chocolate Bỉ, Kyoto Matcha Latte, Trà sữa Oolong nướng, Hồng trà sữa Assam, Trà sữa Khoai Môn Taro, Trà đào cam sả*) và 1 món tạm hết hàng (*Cold Brew Yuzu*) |
+| **Toppings (6 loại)** | Trân châu đường đen dẻo (10.000đ), Kem Cheese Macchiato (12.000đ), Thạch nha đam (10.000đ), Sốt Caramel thủ công (8.000đ), Pudding trứng mềm mịn (10.000đ), Thạch cà phê Espresso (9.000đ) |
+| **Mã khuyến mãi (4 mã)** | `WELCOME10` (-10.000đ, tối thiểu 40.000đ), `BREWLITE20` (-20.000đ, tối thiểu 80.000đ), `FREESHIP` (-15.000đ, tối thiểu 50.000đ), `BREW50` (-25.000đ, tối thiểu 120.000đ) |
 | **Đơn hàng mẫu (3 đơn)** | 1 đơn `COMPLETED` (có Payment `WALLET` + `LoyaltyTransaction`), 1 đơn `PREPARING` (có Payment `CARD`), 1 đơn `PENDING` |
 
 **Bước 5: Khởi chạy đồng thời Backend API và Frontend Web**
@@ -294,6 +305,7 @@ docker run -d \
 | `POSTGRES_DB` | `docker-compose.yml` | `brewlite2_db` | Tên database khởi tạo |
 | `POSTGRES_PORT` | `docker-compose.yml` | `5432` | Cổng map ra máy host |
 | `DATABASE_URL` | `apps/api` | `postgresql://brewlite:brewlite_secret@localhost:5432/brewlite2_db?schema=public` | Chuỗi kết nối Prisma tới PostgreSQL |
+| `DIRECT_URL` | `apps/api` | `postgresql://brewlite:brewlite_secret@localhost:5432/brewlite2_db?schema=public` | Chuỗi kết nối trực tiếp cho `prisma migrate` |
 | `PORT` | `apps/api` | `4000` | Cổng lắng nghe của NestJS server |
 | `NODE_ENV` | `apps/api` | `development` | Môi trường chạy (`development` / `production`) |
 | `JWT_SECRET` | `apps/api` | `your-super-secret-jwt-key-change-in-production` | Khóa bí mật ký/xác thực JWT |
@@ -324,7 +336,7 @@ Mọi lệnh có thể chạy trực tiếp từ thư mục gốc Monorepo:
 | **Build kiểm tra Production** | `npm run build` | Biên dịch mã nguồn TypeScript của NestJS (`apps/api/dist`) và Next.js (`apps/web/.next`). |
 | **Build riêng từng ứng dụng** | `npm run build:api`<br>`npm run build:web` | Biên dịch độc lập Backend API hoặc Frontend Web. |
 | **Chạy E2E Flow API Integration** | `npm run test:e2e --workspace=@brewlite/api` | Chạy `apps/api/test/jest-e2e.json` kiểm thử xuyên suốt 6 bước nghiệp vụ trong `core-e2e-flow.integration.spec.ts`. |
-| **Chạy Playwright E2E Tests** | `npm run test:e2e` | Thực thi bộ kịch bản kiểm thử trình duyệt trong `tests/` (theo `tests/playwright.config.ts`). |
+| **Chạy Playwright E2E Tests** | `npm run test:e2e` | Thực thi kịch bản trình duyệt thật [`tests/e2e/order-checkout.spec.ts`](./tests/e2e/order-checkout.spec.ts) trên hệ thống đang chạy (cần chạy `npx playwright install chromium` lần đầu). |
 
 **Lệnh chạy kiểm thử chuyên sâu trong từng workspace:**
 
@@ -387,11 +399,14 @@ npm run start --workspace=@brewlite/web
         npm ci -> npm run db:generate -> npm run lint -> npm run test -> npm run build
         (Chặn Merge nếu bất kỳ bước nào thất bại)
 
-[Push lên main / develop / ci/* hoặc Tag v*]
+[Push lên main hoặc Tag v*.*.*]
    └──► CD (.github/workflows/cd.yml — luồng Task 5.3):
-        Checkout -> QEMU & Buildx -> Login GHCR (+ Docker Hub nếu có secret)
-        -> Build & Push brewlite-api + brewlite-web (Gắn tag SHA, Branch, SemVer, latest)
-        -> Kích hoạt Deploy Hook Production -> Safe Migration -> Smoke Test
+        Quality Gate (Lint -> Test -> Build)
+        -> Build & Push Docker Image (brewlite-api + brewlite-web gắn tag sha-<short> & SemVer lên GHCR)
+        -> Safe Migration (prisma migrate deploy bằng RENDER_DATABASE_URL)
+        -> Deploy Render API + Smoke Test (/health)
+        -> Deploy Vercel Web + Smoke Test (/menu)
+        -> Dừng pipeline & kích hoạt scripts/rollback-deploy.sh nếu có bước thất bại
 ```
 
 ### 6.2. Chiến lược Gắn Tag Docker Image & Container Registry
@@ -410,17 +425,19 @@ Mỗi lần build qua pipeline CD sẽ tạo 2 image (`apps/api/Dockerfile` và 
 | Thành phần | Registry / Secret Name | Mô tả |
 | :--- | :--- | :--- |
 | **GHCR (Mặc định)** | `ghcr.io/<owner>/brewlite-api:<tag>`<br>`ghcr.io/<owner>/brewlite-web:<tag>` | Xác thực tự động bằng `${{ secrets.GITHUB_TOKEN }}` (`packages: write`). |
-| **Docker Hub (Tùy chọn)** | `DOCKERHUB_USERNAME`<br>`DOCKERHUB_TOKEN` | Tự động kích hoạt push song song lên Docker Hub khi cấu hình đủ 2 secrets. |
-| **Production Deploy Hook** | `RENDER_DEPLOY_HOOK_URL` | Webhook kích hoạt deploy lại dịch vụ trên Render khi có commit mới merge vào `main`. |
+| **Render PostgreSQL** | `RENDER_DATABASE_URL` | External URL dùng riêng cho `prisma migrate deploy` trong CD pipeline. |
+| **Render API Deploy Hook** | `RENDER_DEPLOY_HOOK` | Webhook kích hoạt deploy lại Backend API trên Render sau khi migration thành công. |
+| **Vercel Web Deploy Hook** | `VERCEL_DEPLOY_HOOK` | Webhook kích hoạt deploy lại Frontend Web trên Vercel sau khi API `/health` pass. |
+| **Rollback Webhook (Tùy chọn)** | `ROLLBACK_WEBHOOK_URL` | Webhook kích hoạt rollback tự động từ `scripts/rollback-deploy.sh` khi deploy/smoke test lỗi. |
 
 ### 6.3. Các Bước Triển Khai Production (Deployment)
 
-#### Phương án A: Triển khai Tự động qua CI/CD Pipeline & Cloud PaaS (Render / Vercel / Railway)
+#### Phương án A: Triển khai Tự động qua CI/CD Pipeline & Cloud PaaS (Render + Vercel + Neon/Render PostgreSQL)
 
 1. **Chuẩn bị biến môi trường Production trên nền tảng Cloud:**
-   - **Database (Private PostgreSQL 16):** Tạo DB với Persistent Volume, **không mở cổng public ra Internet**, lấy Internal `DATABASE_URL`.
-   - **Backend Service (`apps/api`):** Thiết lập `DATABASE_URL`, `PORT=4000`, `NODE_ENV=production`, `JWT_SECRET` (chuỗi ngẫu nhiên mạnh), `CORS_ORIGIN` (domain HTTPS của Frontend), và các biến `SEPAY_*`, `VIETQR_*`.
-   - **Frontend Service (`apps/web`):** Thiết lập `NEXT_PUBLIC_API_URL` trỏ về domain HTTPS của Backend API.
+   - **Database (PostgreSQL 16):** Tạo DB trên Render PostgreSQL hoặc Neon, lấy cả `DATABASE_URL` (pooled/internal) và `DIRECT_URL` (direct connection phục vụ `prisma migrate deploy`).
+   - **Backend Service (`apps/api` trên Render Docker):** Thiết lập `DATABASE_URL`, `DIRECT_URL`, `PORT=4000`, `NODE_ENV=production`, `JWT_SECRET` (chuỗi ngẫu nhiên mạnh), `CORS_ORIGIN` (domain HTTPS của Frontend Vercel), và các biến `SEPAY_*`, `VIETQR_*`.
+   - **Frontend Service (`apps/web` trên Vercel):** Thiết lập `NEXT_PUBLIC_API_URL` trỏ về domain HTTPS của Backend API trên Render.
 2. **Kích hoạt phát hành lên `main`:**
    - Merge Pull Request từ `develop` vào `main` (sau khi CI xanh) hoặc gắn tag phát hành:
      ```bash
@@ -429,21 +446,31 @@ Mỗi lần build qua pipeline CD sẽ tạo 2 image (`apps/api/Dockerfile` và 
      git tag -a v1.0.0 -m "Release BrewLite v1.0.0"
      git push origin v1.0.0
      ```
-3. **Thực thi Safe Migration trước/khi khởi động Backend:**
+3. **Thực thi Safe Migration & Khởi tạo dữ liệu mẫu lần đầu:**
    ```bash
-   # Áp dụng schema / migration an toàn trên Production
-   npx prisma db push --skip-generate --schema=apps/api/prisma/schema.prisma
-   # Hoặc sử dụng Prisma Migrate nếu triển khai bằng thư mục prisma/migrations/:
+   # Áp dụng Prisma Migrations chính thức trên Production
    npm run prisma:deploy --workspace=@brewlite/api
+
+   # (Chỉ chạy 1 lần khi DB trống) Khởi tạo dữ liệu mẫu 15 sản phẩm, 12 nguyên liệu, 6 topping, 4 promo
+   npm run db:seed --workspace=@brewlite/api
    ```
 4. **Kiểm tra sau triển khai (Smoke Test):**
    ```bash
-   # Kiểm tra Backend API trả về danh sách sản phẩm (HTTP 200)
-   curl -f https://<api-production-domain>/products
+   # Kiểm tra Backend API Healthcheck & kết nối Database (HTTP 200)
+   curl -f https://<api-production-domain>/health
 
    # Kiểm tra Frontend Web phục vụ qua HTTPS (HTTP 200)
    curl -I https://<web-production-domain>/menu
    ```
+
+### 6.4. Thông Tin Bàn Giao Production & Demo (Task 5.4)
+
+| Hạng mục bàn giao | Giá trị / Liên kết | Trạng thái |
+| :--- | :--- | :--- |
+| **Frontend Web (Vercel HTTPS)** | `https://<brewlite-web>.vercel.app/menu` *(Cập nhật URL thực tế sau khi deploy `main`)* | ⏳ Chờ deploy `main` |
+| **Backend API (Render HTTPS)** | `https://<brewlite-api>.onrender.com/health` *(Cập nhật URL thực tế sau khi deploy `main`)* | ⏳ Chờ deploy `main` |
+| **Release Tag & Notes** | `v1.0.0` ([`CHANGELOG.md`](./CHANGELOG.md)) | ⏳ Gắn tag khi merge `main` |
+| **Video Demo E2E Flow** | `<link-video-demo>` *(Ghi hình luồng Order → QR → Webhook → Kitchen → Inventory)* | ⏳ Chờ quay sau deploy |
 
 #### Phương án B: Triển khai Trực tiếp từ Container Registry trên VPS / Server Docker
 
@@ -629,6 +656,8 @@ Một User Story / Task chỉ được chuyển sang **`Done`** khi thỏa mãn 
   - [Task 4.1 – Product Backlog & Issue Board (Sprint 1 & Sprint 2)](./docs/product-backlog.md)
   - [Task 4.4 – Minh chứng triển khai Continuous Integration (CI)](./docs/ci-evidence.md)
   - [Task 5.3 & 5.4 – Hướng dẫn Đóng gói Docker Image & Container Registry](./docs/deployment.md)
+  - [Task 5.3 – Chiến lược Rollback Tự động & An toàn](./docs/deployment/rollback-strategy.md)
+  - [Task 5.4 – Tổng kết Sprint Review & Retrospective (Sprint 1 & Sprint 2)](./docs/sprint-review-retrospective.md)
   - [Task 5.4 – Báo cáo rà soát bảo mật Repository & CI/CD Logs](./docs/security-audit.md)
   - [Task 5.4 – Nhật ký phát hành & Release Notes (`v1.0.0`)](./CHANGELOG.md)
   - [Task 8.1 – Ma trận truy vết yêu cầu (Traceability Matrix)](./docs/traceability-matrix.md)

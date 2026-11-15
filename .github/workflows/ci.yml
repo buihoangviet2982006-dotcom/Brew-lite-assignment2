@@ -19,18 +19,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: "npm"
 
       - name: 1. Install dependencies
-        run: |
-          npm ci
-          npm run db:generate
+        run: npm ci
 
-      - name: 2. Run Lint
+      - name: 2. Generate Prisma Client
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
+          DIRECT_URL: postgresql://build:build@localhost:5432/build?schema=public
+
+      - name: 3. Run Lint
         run: npm run lint
 
-      - name: 3. Run Unit Tests
+      - name: 4. Run Unit & Integration Tests
         run: npm run test
 
-      - name: 4. Build Applications
+      - name: 5. Build Applications
         run: npm run build
