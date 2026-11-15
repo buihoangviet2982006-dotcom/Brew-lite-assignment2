@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { OrderStatus, ProductSize } from '@prisma/client';
-import { OrdersService } from './orders.service';
+import { OrdersService, assertTransition } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 describe('OrdersService (FR-05)', () => {
@@ -292,5 +292,27 @@ const mockPrismaService = {
     await expect(
       service.findOrderById('user-1', 'order-999'),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('8. Kiểm soát State Machine assertTransition hợp lệ và chặn chuyển tiếp sai (FR-08)', () => {
+    expect(() =>
+      assertTransition(OrderStatus.PENDING, OrderStatus.PAID),
+    ).not.toThrow();
+    expect(() =>
+      assertTransition(OrderStatus.PAID, OrderStatus.PREPARING),
+    ).not.toThrow();
+    expect(() =>
+      assertTransition(OrderStatus.PREPARING, OrderStatus.COMPLETED),
+    ).not.toThrow();
+    expect(() =>
+      assertTransition(OrderStatus.PENDING, OrderStatus.PAYMENT_FAILED),
+    ).not.toThrow();
+
+    expect(() =>
+      assertTransition(OrderStatus.PENDING, OrderStatus.COMPLETED),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      assertTransition(OrderStatus.COMPLETED, OrderStatus.CANCELLED),
+    ).toThrow(BadRequestException);
   });
 });

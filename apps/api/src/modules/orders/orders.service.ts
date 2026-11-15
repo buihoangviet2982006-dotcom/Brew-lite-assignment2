@@ -16,6 +16,32 @@ export const SIZE_EXTRA_PRICE: Record<ProductSize, number> = {
   [ProductSize.L]: 10000,
 };
 
+// State Machine chuyển trạng thái đơn hàng hợp lệ (FR-08)
+export const VALID_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  [OrderStatus.PENDING]: [
+    OrderStatus.PAID,
+    OrderStatus.PAYMENT_FAILED,
+    OrderStatus.CANCELLED,
+  ],
+  [OrderStatus.PAID]: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
+  [OrderStatus.PREPARING]: [OrderStatus.COMPLETED],
+  [OrderStatus.COMPLETED]: [],
+  [OrderStatus.CANCELLED]: [],
+  [OrderStatus.PAYMENT_FAILED]: [],
+};
+
+export function assertTransition(
+  currentStatus: OrderStatus,
+  nextStatus: OrderStatus,
+): void {
+  const allowed = VALID_ORDER_TRANSITIONS[currentStatus] ?? [];
+  if (!allowed.includes(nextStatus)) {
+    throw new BadRequestException(
+      `Không thể chuyển trạng thái đơn hàng từ ${currentStatus} sang ${nextStatus}`,
+    );
+  }
+}
+
 interface IngredientUsage {
   id: string;
   name: string;
@@ -537,6 +563,39 @@ export class OrdersService {
 
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
+    };
+  }
+
+  // 10. KIỂM SOÁT VÀ CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG (FR-08 State Machine)
+  assertTransition(currentStatus: OrderStatus, nextStatus: OrderStatus): void {
+    assertTransition(currentStatus, nextStatus);
+  }
+
+  async updateOrderStatus(orderId: string, nextStatus: OrderStatus) {
+    if (!nextStatus || !Object.values(OrderStatus).includes(nextStatus)) {
+      throw new BadRequestException('Trạng thái đơn hàng không hợp lệ');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Không tìm thấy đơn hàng');
+    }
+
+    assertTransition(order.status, nextStatus);
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: nextStatus },
+    });
+
+    return {
+      id: updated.id,
+      orderId: updated.id,
+      status: updated.status,
+      updatedAt: updated.updatedAt,
     };
   }
 }

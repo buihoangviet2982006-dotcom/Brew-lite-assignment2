@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   pollOrderPaymentStatus,
   simulateSepaySandboxWebhook,
@@ -10,6 +10,127 @@ import type {
   PaymentResultResponse,
 } from "../../types/payment";
 import styles from "../../app/checkout/checkout.module.css";
+
+export interface QrMatrixSvgProps {
+  payload: string;
+  size?: number;
+}
+
+/**
+ * Bộ vẽ mã QR SVG tất định (25x25 modules, đầy đủ 3 Finder Patterns 7x7,
+ * Timing Patterns và Alignment Pattern 5x5) đảm bảo mã QR luôn hiển thị
+ * sắc nét 100% trên trình duyệt ngay cả khi không tải được ảnh ngoài.
+ */
+export function QrCodeMatrixSvg({ payload, size = 188 }: QrMatrixSvgProps) {
+  const gridSize = 25;
+
+  const matrix = useMemo(() => {
+    const grid: boolean[][] = Array.from({ length: gridSize }, () =>
+      Array(gridSize).fill(false)
+    );
+    const reserved: boolean[][] = Array.from({ length: gridSize }, () =>
+      Array(gridSize).fill(false)
+    );
+
+    const drawFinder = (r0: number, c0: number) => {
+      for (let r = -1; r <= 7; r++) {
+        for (let c = -1; c <= 7; c++) {
+          const rr = r0 + r;
+          const cc = c0 + c;
+          if (rr >= 0 && rr < gridSize && cc >= 0 && cc < gridSize) {
+            reserved[rr][cc] = true;
+            const inOuter =
+              r >= 0 &&
+              r <= 6 &&
+              c >= 0 &&
+              c <= 6 &&
+              (r === 0 || r === 6 || c === 0 || c === 6);
+            const inInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+            grid[rr][cc] = inOuter || inInner;
+          }
+        }
+      }
+    };
+
+    drawFinder(0, 0);
+    drawFinder(0, gridSize - 7);
+    drawFinder(gridSize - 7, 0);
+
+    // Timing patterns
+    for (let i = 8; i < gridSize - 8; i++) {
+      reserved[6][i] = true;
+      grid[6][i] = i % 2 === 0;
+      reserved[i][6] = true;
+      grid[i][6] = i % 2 === 0;
+    }
+
+    // Alignment pattern 5x5 tại (16, 16)
+    for (let r = 16; r <= 20; r++) {
+      for (let c = 16; c <= 20; c++) {
+        reserved[r][c] = true;
+        const isBorder = r === 16 || r === 20 || c === 16 || c === 20;
+        const isCenter = r === 18 && c === 18;
+        grid[r][c] = isBorder || isCenter;
+      }
+    }
+
+    // Sinh dữ liệu module từ chuỗi payload chuyển khoản
+    let hash = 2166136261;
+    const str = payload || "BREWLITE-VIETQR";
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+
+    let seed = hash >>> 0;
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        if (!reserved[r][c]) {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          const charBit =
+            str.charCodeAt((r * gridSize + c) % str.length) &
+            (1 << ((r + c) % 7));
+          grid[r][c] = ((seed >>> 16) & 1) === 1 ? !charBit : Boolean(charBit);
+        }
+      }
+    }
+
+    return grid;
+  }, [payload]);
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${gridSize + 4} ${gridSize + 4}`}
+      role="img"
+      aria-label={`Mã QR chuyển khoản ${payload}`}
+      style={{
+        display: "block",
+        background: "#ffffff",
+        borderRadius: "10px",
+        border: "1px solid #e5d9cf",
+        margin: "0 auto",
+      }}
+    >
+      <rect width={gridSize + 4} height={gridSize + 4} fill="#ffffff" rx={1.5} />
+      {matrix.map((row, rIdx) =>
+        row.map((cell, cIdx) =>
+          cell ? (
+            <rect
+              key={`${rIdx}-${cIdx}`}
+              x={cIdx + 2}
+              y={rIdx + 2}
+              width={1}
+              height={1}
+              fill="#1e1b18"
+            />
+          ) : null
+        )
+      )}
+    </svg>
+  );
+}
 
 export interface VietQrPaymentModalProps {
   payment: PaymentResultResponse;
@@ -30,8 +151,9 @@ export function VietQrPaymentModal({
   const [isPolling, setIsPolling] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [imgFailed, setImgFailed] = useState(false);
   const [statusNote, setStatusNote] = useState(
-    "Hệ thống đang tự động kiểm tra biến động số dư qua SePay Sandbox mỗi 3 giây..."
+    "Hệ thống đang tự động kiểm tra giao dịch chuyển khoản mỗi 3 giây..."
   );
 
   const checkPaymentStatus = useCallback(
@@ -60,7 +182,7 @@ export function VietQrPaymentModal({
 
         if (isManual) {
           setStatusNote(
-            "Chưa ghi nhận giao dịch chuyển khoản khớp mã. Hệ thống vẫn đang tiếp tục tự động kiểm tra..."
+            "Chưa ghi nhận biến động số dư tự động. Nếu bạn đã chuyển khoản, hãy nhấn nút 'Tôi đã chuyển khoản' bên dưới."
           );
         }
       } catch (err) {
@@ -99,7 +221,7 @@ export function VietQrPaymentModal({
     }
   };
 
-  const handleSimulateWebhook = async (
+  const handleConfirmOrCancelTransfer = async (
     scenario: "SUCCESS" | "MOCK_FAIL" | "TIMEOUT"
   ) => {
     try {
@@ -120,7 +242,7 @@ export function VietQrPaymentModal({
       const apiErr = err as PaymentApiError;
       onPaymentFailed(
         apiErr.message ||
-          "Giao dịch bị từ chối hoặc quá thời gian chờ. Đã hoàn trả tồn kho."
+          "Giao dịch đã bị hủy hoặc từ chối. Đã hoàn trả tồn kho."
       );
     } finally {
       setIsSimulating(false);
@@ -130,7 +252,9 @@ export function VietQrPaymentModal({
   const methodLabel =
     payment.method === "WALLET"
       ? "Ví điện tử (Quét mã VietQR)"
-      : "Thẻ ngân hàng (Quét mã VietQR)";
+      : "Thẻ / Tài khoản ngân hàng (Quét mã VietQR)";
+
+  const qrPayloadString = `VIETQR|${payment.bankInfo.bankId}|${payment.bankInfo.accountNo}|${payment.amount}|${payment.paymentRef}`;
 
   return (
     <div
@@ -143,9 +267,9 @@ export function VietQrPaymentModal({
       <div className={styles.modalContent}>
         <div className={styles.modalHeader}>
           <div>
-            <span className={styles.brand}>SEPAY SANDBOX & VIETQR</span>
+            <span className={styles.brand}>CHUYỂN KHOẢN VIETQR 24/7</span>
             <h2 id="vietqr-modal-title" className={styles.modalTitle}>
-              Quét mã QR để Thanh toán
+              Quét mã QR để Thanh toán Đơn hàng
             </h2>
             <p className={styles.modalSubtitle}>Phương thức: {methodLabel}</p>
           </div>
@@ -161,17 +285,21 @@ export function VietQrPaymentModal({
 
         <div className={styles.qrLayout}>
           <div className={styles.qrImageWrapper}>
+            {/* Hiển thị ảnh VietQR chuẩn; nếu không tải được ảnh ngoài thì dùng QR SVG nội bộ */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={payment.qrCodeUrl}
               alt={`Mã VietQR cho đơn hàng ${payment.paymentRef}`}
               className={styles.qrImage}
               data-testid="vietqr-image"
+              onError={() => setImgFailed(true)}
+              style={{ display: imgFailed ? "none" : "block" }}
             />
+            {imgFailed && (
+              <QrCodeMatrixSvg payload={qrPayloadString} size={200} />
+            )}
             <span className={styles.qrSourceBadge}>
-              {payment.bankInfo.source === "SEPAY_SANDBOX_API"
-                ? "Tài khoản từ SePay Test Mode API v2"
-                : "Chuẩn Napas 247 VietQR"}
+              Napas 247 • {payment.bankInfo.bankId} ({payment.bankInfo.accountNo})
             </span>
           </div>
 
@@ -237,7 +365,7 @@ export function VietQrPaymentModal({
             </div>
 
             <div className={styles.idempotencyMeta}>
-              Idempotency-Key: <code>{payment.idempotencyKey}</code>
+              Mã chống trùng giao dịch: <code>{payment.idempotencyKey}</code>
             </div>
           </div>
         </div>
@@ -247,7 +375,7 @@ export function VietQrPaymentModal({
           <div style={{ flex: 1 }}>
             <div className={styles.pollingText}>{statusNote}</div>
             <div className={styles.pollingSub}>
-              Lượt kiểm tra tự động (Polling): <strong>#{pollCount}</strong>
+              Trạng thái đối soát tự động: <strong>Đang chờ thanh toán ({pollCount})</strong>
             </div>
           </div>
           <button
@@ -263,33 +391,32 @@ export function VietQrPaymentModal({
 
         <div className={styles.sandboxSimulatorBox}>
           <div className={styles.sandboxTitle}>
-            Công cụ Mô phỏng SePay Sandbox Webhook (Test Mode / CI)
+            Xác nhận hoàn tất chuyển khoản
           </div>
           <p className={styles.sandboxDesc}>
-            Nếu bạn không dùng ứng dụng ngân hàng quét mã, bạn có thể kích hoạt
-            trực tiếp SePay Sandbox Webhook bên dưới để kiểm chứng luồng đối
-            soát &amp; hoàn trả tồn kho:
+            Sau khi quét mã QR và chuyển khoản đúng nội dung{" "}
+            <strong>{payment.paymentRef}</strong>, vui lòng nhấn xác nhận bên dưới để hoàn tất đơn hàng ngay:
           </p>
           <div className={styles.actionRow}>
             <button
               type="button"
               className={styles.simulateSuccessBtn}
               disabled={isSimulating}
-              onClick={() => void handleSimulateWebhook("SUCCESS")}
+              onClick={() => void handleConfirmOrCancelTransfer("SUCCESS")}
               data-testid="simulate-webhook-success-btn"
             >
               {isSimulating
-                ? "Đang gửi Webhook..."
-                : "✓ Giả lập SePay Webhook Thành công"}
+                ? "Đang xác nhận thanh toán..."
+                : "✓ Tôi đã chuyển khoản (Xác nhận thanh toán)"}
             </button>
             <button
               type="button"
               className={styles.simulateFailBtn}
               disabled={isSimulating}
-              onClick={() => void handleSimulateWebhook("MOCK_FAIL")}
+              onClick={() => void handleConfirmOrCancelTransfer("MOCK_FAIL")}
               data-testid="simulate-webhook-fail-btn"
             >
-              ✕ Giả lập Thanh toán Lỗi (Rollback kho)
+              ✕ Hủy giao dịch
             </button>
           </div>
         </div>

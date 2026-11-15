@@ -9,9 +9,9 @@ async function bootstrap() {
   // Bật graceful shutdown hooks
   app.enableShutdownHooks();
 
-  // Bật CORS cho phép kết nối từ frontend
+  // Bật CORS cho phép kết nối từ frontend và các công cụ tunnel / webhook
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: true,
     credentials: true,
   });
 

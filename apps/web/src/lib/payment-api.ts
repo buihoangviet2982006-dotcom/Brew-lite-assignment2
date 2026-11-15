@@ -5,6 +5,7 @@ import type {
   PaymentApiError,
   PaymentResultResponse,
   SimulateSepayWebhookPayload,
+  VietQrBankInfo,
 } from "../types/payment";
 
 const API_URL = (
@@ -187,4 +188,38 @@ export async function simulateSepaySandboxWebhook(
     );
   }
 }
+
+export function getEnvVietQrBankConfig(): VietQrBankInfo {
+  return {
+    bankId: (process.env.NEXT_PUBLIC_VIETQR_BANK_ID || "MB").trim(),
+    accountNo: (process.env.NEXT_PUBLIC_VIETQR_ACCOUNT_NO || "0000000001").trim(),
+    accountName: (
+      process.env.NEXT_PUBLIC_VIETQR_ACCOUNT_NAME || "BrewLite"
+    ).trim(),
+    template: (process.env.NEXT_PUBLIC_VIETQR_TEMPLATE || "compact2").trim(),
+    source: "ENV_FALLBACK",
+  };
+}
+
+export async function getVietQrBankConfig(): Promise<VietQrBankInfo> {
+  const fallback = getEnvVietQrBankConfig();
+  try {
+    const response = await axios.get<{
+      status?: string;
+      activeVietQrConfig?: VietQrBankInfo;
+    }>(`${API_URL}/payments/sepay-sandbox/bank-accounts`, {
+      timeout: 5000,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+    if (response.data?.activeVietQrConfig?.accountNo) {
+      return response.data.activeVietQrConfig;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 

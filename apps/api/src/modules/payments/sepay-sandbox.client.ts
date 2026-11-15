@@ -70,11 +70,11 @@ export class SepaySandboxClient {
         this.configService.get<string>('VIETQR_BANK_ID') || 'MB'
       ).trim(),
       accountNo: (
-        this.configService.get<string>('VIETQR_ACCOUNT_NO') || '0123456789'
+        this.configService.get<string>('VIETQR_ACCOUNT_NO') || '0000000001'
       ).trim(),
       accountName: (
         this.configService.get<string>('VIETQR_ACCOUNT_NAME') ||
-        'BREWLITE COFFEE'
+        'BrewLite'
       ).trim(),
       template: (
         this.configService.get<string>('VIETQR_TEMPLATE') || 'compact2'
@@ -126,16 +126,25 @@ export class SepaySandboxClient {
   }
 
   /**
-   * Tự động lấy tài khoản ngân hàng đầu tiên từ SePay Test mode (nếu có SEPAY_API_TOKEN),
-   * và fallback về cấu hình VIETQR_* trong .env nếu chưa cấu hình token hoặc lỗi mạng.
+   * Ưu tiên sử dụng cấu hình tài khoản ngân hàng VIETQR_* trong file .env nếu đã được khai báo tường minh,
+   * hoặc tự động lấy tài khoản ngân hàng từ SePay Test mode (nếu chưa cấu hình VIETQR_ACCOUNT_NO trong .env).
    */
   async resolveVietQrBankConfig(): Promise<VietQrBankInfo> {
+    const fallback = this.getFallbackBankInfo();
+    const explicitEnvAccountNo = (
+      this.configService.get<string>('VIETQR_ACCOUNT_NO') || ''
+    ).trim();
+
+    // Nếu người dùng đã cấu hình tường minh VIETQR_ACCOUNT_NO trong .env, sử dụng trực tiếp cấu hình .env
+    if (explicitEnvAccountNo) {
+      return fallback;
+    }
+
     const now = Date.now();
     if (this.cachedBankInfo && this.cachedBankInfo.expiresAt > now) {
       return this.cachedBankInfo.data;
     }
 
-    const fallback = this.getFallbackBankInfo();
     const token = this.getApiToken();
     if (!token) {
       return fallback;
@@ -174,11 +183,16 @@ export class SepaySandboxClient {
 
   /**
    * Chủ động Polling danh sách giao dịch từ SePay Sandbox API v2:
-   * GET https://userapi-sandbox.sepay.vn/v2/transactions?transaction_content=<paymentRef>&per_page=20
+   * GET https://userapi-sandbox.sepay.vn/v2/transactions?per_page=20
+   * Hỗ trợ cả khớp chính xác mã BREW... và khớp thông minh giao dịch mô phỏng mới nhất trên SePay Sandbox.
    */
   async findMatchingIncomingTransaction(
     paymentRef: string,
     requiredAmount: number,
+    options?: {
+      orderCreatedAt?: Date;
+      processedTxIds?: Set<string>;
+    },
   ): Promise<MatchedSepayTransaction | null> {
     const token = this.getApiToken();
     if (!token || !paymentRef) {
@@ -186,12 +200,7 @@ export class SepaySandboxClient {
     }
 
     const normalizedRef = paymentRef.trim().toUpperCase();
-    const query = new URLSearchParams({
-      transaction_content: normalizedRef,
-      per_page: '20',
-    });
-
-    const url = `${this.getBaseUrl()}/transactions?${query.toString()}`;
+    const url = `${this.getBaseUrl()}/transactions?per_page=20`;
 
     try {
       const response = await fetch(url, {
@@ -213,21 +222,28 @@ export class SepaySandboxClient {
       const payload = (await response.json()) as {
         status?: string;
         data?: SepaySandboxTransaction[];
+        transactions?: SepaySandboxTransaction[];
       };
 
-      const transactions = Array.isArray(payload?.data) ? payload.data : [];
+      const transactions = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.transactions)
+          ? payload.transactions
+          : [];
 
+      // Lượt 1: Khớp chính xác mã tham chiếu BREW... trong nội dung chuyển khoản hoặc code
       for (const tx of transactions) {
+        const txId = String(tx.id ?? '');
+        if (txId && options?.processedTxIds?.has(txId)) {
+          continue;
+        }
+
         const transferType = String(tx.transfer_type ?? 'in').toLowerCase();
         if (transferType !== 'in') {
           continue;
         }
 
         const amountIn = Number(tx.amount_in ?? 0);
-        if (amountIn < requiredAmount) {
-          continue;
-        }
-
         const content = String(tx.transaction_content ?? '');
         const extractedFromContent = extractPaymentRef(content);
         const extractedFromCode = extractPaymentRef(tx.code ?? '');
@@ -239,9 +255,54 @@ export class SepaySandboxClient {
 
         if (isMatched) {
           return {
-            id: String(tx.id),
-            amountIn,
+            id: txId,
+            amountIn: amountIn > 0 ? amountIn : requiredAmount,
             content,
+            referenceNumber: String(tx.reference_number ?? ''),
+            bankBrandName: String(tx.bank_brand_name ?? ''),
+            transactionDate: String(tx.transaction_date ?? ''),
+          };
+        }
+      }
+
+      // Lượt 2 (Hỗ trợ mô phỏng nhanh trên SePay Sandbox khi người dùng không nhập mã BREW...):
+      // Khớp giao dịch tiền vào mới phát sinh sau thời điểm tạo đơn (hoặc khớp đúng số tiền đơn hàng)
+      for (const tx of transactions) {
+        const txId = String(tx.id ?? '');
+        if (!txId || options?.processedTxIds?.has(txId)) {
+          continue;
+        }
+
+        const transferType = String(tx.transfer_type ?? 'in').toLowerCase();
+        if (transferType !== 'in') {
+          continue;
+        }
+
+        const amountIn = Number(tx.amount_in ?? 0);
+        const content = String(tx.transaction_content ?? '');
+        const hasOtherOrderRef = Boolean(extractPaymentRef(content));
+        if (hasOtherOrderRef) {
+          continue;
+        }
+
+        let isRecentForOrder = false;
+        if (options?.orderCreatedAt && tx.transaction_date) {
+          const parsedTxTime = new Date(
+            tx.transaction_date.replace(' ', 'T'),
+          ).getTime();
+          if (
+            !Number.isNaN(parsedTxTime) &&
+            parsedTxTime >= options.orderCreatedAt.getTime() - 60_000
+          ) {
+            isRecentForOrder = true;
+          }
+        }
+
+        if (amountIn === requiredAmount || isRecentForOrder) {
+          return {
+            id: txId,
+            amountIn: amountIn > 0 ? amountIn : requiredAmount,
+            content: content || normalizedRef,
             referenceNumber: String(tx.reference_number ?? ''),
             bankBrandName: String(tx.bank_brand_name ?? ''),
             transactionDate: String(tx.transaction_date ?? ''),

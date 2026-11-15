@@ -75,6 +75,20 @@ export class SepayWebhookDto {
   @IsOptional()
   @IsString()
   reference_number?: string;
+
+  @IsOptional()
+  va?: string | null;
+
+  @IsOptional()
+  amount_out?: number | string;
+
+  @IsOptional()
+  bank_account_id?: string | number;
+
+  @IsOptional()
+  webhook_success?: number | boolean;
+
+  [key: string]: unknown;
 }
 
 /**
