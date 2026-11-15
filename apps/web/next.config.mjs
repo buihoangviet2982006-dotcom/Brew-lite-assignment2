@@ -1,5 +1,9 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function loadRootEnv() {
   const envMap = {};
@@ -38,6 +42,10 @@ const rootEnv = loadRootEnv();
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
+  experimental: {
+    outputFileTracingRoot: path.join(__dirname, "../../"),
+  },
   env: {
     NEXT_PUBLIC_API_URL:
       rootEnv.NEXT_PUBLIC_API_URL ||
