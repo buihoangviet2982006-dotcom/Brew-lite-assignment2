@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  INestApplication,
   NotFoundException,
   ValidationPipe,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import { ConfigModule } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductSize } from '@prisma/client';
+import * as request from 'supertest';
 import { PrismaModule } from './prisma/prisma.module';
 import { PrismaService } from './prisma/prisma.service';
 import { AuthController } from './modules/auth/auth.controller';
@@ -32,6 +34,7 @@ describe('Core End-to-End Business Flow (6 Steps: Menu -> Customize -> Cart/Pric
   let jwtService: JwtService;
   let jwtStrategy: JwtStrategy;
   let validationPipe: ValidationPipe;
+  let app: INestApplication;
 
   // Stateful In-Memory Database cho kiểm thử xuyên suốt 6 bước
   const dbUsers = new Map<string, any>();
@@ -454,6 +457,13 @@ describe('Core End-to-End Business Flow (6 Steps: Menu -> Customize -> Cart/Pric
       transform: true,
       forbidNonWhitelisted: true,
     });
+    app = moduleRef.createNestApplication();
+    app.useGlobalPipes(validationPipe);
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
   });
 
   it('Thực thi trọn vẹn 6 bước Luồng Nghiệp Vụ Chính (Core E2E Flow) từ Xem Menu -> Chọn Size/Topping -> Đăng ký/Đăng nhập JWT -> Đặt đơn Transaction -> Thanh toán VietQR/Idempotency -> Theo dõi đơn hàng', async () => {
@@ -696,5 +706,202 @@ describe('Core End-to-End Business Flow (6 Steps: Menu -> Customize -> Cart/Pric
       orderForFail.id,
     );
     expect(failedOrder.status).toBe(OrderStatus.PAYMENT_FAILED);
+  });
+
+  it('Kiểm thử API HTTP xuyên suốt tạo đơn và thanh toán: xác thực, phân quyền, lưu dữ liệu, idempotency, webhook và hoàn kho', async () => {
+    const api = request(app.getHttpServer());
+    const customerEmail = `api-${Date.now()}@brewlite.vn`;
+    const registerResponse = await api.post('/auth/register').send({
+      email: customerEmail,
+      password: 'password123',
+    });
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await api.post('/auth/login').send({
+      email: customerEmail,
+      password: 'password123',
+    });
+    expect(loginResponse.status).toBe(200);
+    const customerToken = loginResponse.body.accessToken as string;
+    const customerAuth = { Authorization: `Bearer ${customerToken}` };
+
+    const orderPayload = {
+      items: [
+        {
+          productId: 'prod-cf-sua',
+          size: ProductSize.M,
+          quantity: 2,
+          toppingIds: ['top-pearl'],
+        },
+      ],
+      promotionCode: 'WELCOME10',
+    };
+
+    const unauthenticatedOrder = await api.post('/orders').send(orderPayload);
+    expect(unauthenticatedOrder.status).toBe(401);
+
+    const stockBeforeOrder = dbIngredients.get('ing-coffee').stockQuantity;
+    const createdResponse = await api
+      .post('/orders')
+      .set(customerAuth)
+      .send(orderPayload);
+    expect(createdResponse.status).toBe(201);
+    expect(createdResponse.body).toMatchObject({
+      status: OrderStatus.PENDING,
+      subtotal: 90000,
+      discountAmount: 10000,
+      total: 80000,
+    });
+    expect(createdResponse.body.orderItems[0]).toMatchObject({
+      size: ProductSize.M,
+      quantity: 2,
+      lineTotal: 90000,
+      toppings: [{ id: 'top-pearl', name: 'Trân châu đường đen' }],
+    });
+    expect(dbIngredients.get('ing-coffee').stockQuantity).toBe(
+      stockBeforeOrder - 40,
+    );
+
+    const orderId = createdResponse.body.id as string;
+    const persistedOrderResponse = await api
+      .get(`/orders/${orderId}`)
+      .set(customerAuth);
+    expect(persistedOrderResponse.status).toBe(200);
+    expect(persistedOrderResponse.body).toMatchObject({
+      id: orderId,
+      status: OrderStatus.PENDING,
+      total: 80000,
+    });
+
+    const otherCustomerEmail = `other-${Date.now()}@brewlite.vn`;
+    await api.post('/auth/register').send({
+      email: otherCustomerEmail,
+      password: 'password123',
+    });
+    const otherLoginResponse = await api.post('/auth/login').send({
+      email: otherCustomerEmail,
+      password: 'password123',
+    });
+    const otherCustomerAuth = {
+      Authorization: `Bearer ${otherLoginResponse.body.accessToken as string}`,
+    };
+    const forbiddenPayment = await api
+      .post('/payments')
+      .set(otherCustomerAuth)
+      .set('Idempotency-Key', `other-${orderId}`)
+      .send({ orderId, method: PaymentMethod.WALLET });
+    expect(forbiddenPayment.status).toBe(403);
+
+    const missingIdempotencyKey = await api
+      .post('/payments')
+      .set(customerAuth)
+      .send({ orderId, method: PaymentMethod.WALLET });
+    expect(missingIdempotencyKey.status).toBe(400);
+
+    const idempotencyKey = `api-payment-${orderId}`;
+    const paymentRequest = () =>
+      api
+        .post('/payments')
+        .set(customerAuth)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ orderId, method: PaymentMethod.WALLET });
+    const paymentResponse = await paymentRequest();
+    expect(paymentResponse.status).toBe(200);
+    expect(paymentResponse.body).toMatchObject({
+      orderId,
+      amount: 80000,
+      status: 'PENDING',
+      orderStatus: OrderStatus.PENDING,
+      idempotentReplayed: false,
+    });
+    expect(paymentResponse.body.qrCodeUrl).toContain('img.vietqr.io/image/');
+
+    const replayResponse = await paymentRequest();
+    expect(replayResponse.status).toBe(200);
+    expect(replayResponse.body.id).toBe(paymentResponse.body.id);
+    expect(replayResponse.body.idempotentReplayed).toBe(true);
+
+    const pendingStatusResponse = await api
+      .get(`/payments/order/${orderId}/status`)
+      .set(customerAuth);
+    expect(pendingStatusResponse.status).toBe(200);
+    expect(pendingStatusResponse.body).toMatchObject({
+      orderId,
+      status: 'PENDING',
+      orderStatus: OrderStatus.PENDING,
+    });
+
+    const webhookResponse = await api
+      .post('/payments/sepay-webhook/simulate')
+      .send({ orderId, scenario: 'SUCCESS' });
+    expect(webhookResponse.status).toBe(200);
+    expect(webhookResponse.body).toMatchObject({
+      success: true,
+      status: PaymentStatus.SUCCEEDED,
+      orderStatus: OrderStatus.PAID,
+      loyaltyPointsEarned: 8,
+    });
+
+    const duplicateWebhookResponse = await api
+      .post('/payments/sepay-webhook/simulate')
+      .send({ orderId, scenario: 'SUCCESS' });
+    expect(duplicateWebhookResponse.status).toBe(200);
+    expect(duplicateWebhookResponse.body.idempotentReplayed).toBe(true);
+    expect(dbUsers.get(customerEmail)?.loyaltyPoints).toBe(8);
+    expect(dbLoyaltyTxs.filter((tx) => tx.userId === dbUsers.get(customerEmail).id))
+      .toHaveLength(1);
+
+    const paidStatusResponse = await api
+      .get(`/payments/order/${orderId}/status`)
+      .set(customerAuth);
+    expect(paidStatusResponse.status).toBe(200);
+    expect(paidStatusResponse.body).toMatchObject({
+      orderId,
+      status: PaymentStatus.SUCCEEDED,
+      orderStatus: OrderStatus.PAID,
+    });
+
+    const forbiddenOrderRead = await api
+      .get(`/orders/${orderId}`)
+      .set(otherCustomerAuth);
+    expect(forbiddenOrderRead.status).toBe(404);
+
+    const failedOrderResponse = await api
+      .post('/orders')
+      .set(customerAuth)
+      .send({
+        items: [
+          {
+            productId: 'prod-cf-sua',
+            size: ProductSize.S,
+            quantity: 1,
+          },
+        ],
+      });
+    expect(failedOrderResponse.status).toBe(201);
+    const failedOrderId = failedOrderResponse.body.id as string;
+    const stockBeforeFailedPayment =
+      dbIngredients.get('ing-coffee').stockQuantity;
+    expect(stockBeforeFailedPayment).toBe(stockBeforeOrder - 60);
+
+    const failedPaymentResponse = await api
+      .post('/payments')
+      .set(customerAuth)
+      .set('Idempotency-Key', `api-failure-${failedOrderId}`)
+      .send({
+        orderId: failedOrderId,
+        method: PaymentMethod.CARD,
+        simulateScenario: 'MOCK_FAIL',
+      });
+    expect(failedPaymentResponse.status).toBe(400);
+    expect(dbIngredients.get('ing-coffee').stockQuantity).toBe(
+      stockBeforeFailedPayment + 20,
+    );
+
+    const failedOrderRead = await api
+      .get(`/orders/${failedOrderId}`)
+      .set(customerAuth);
+    expect(failedOrderRead.status).toBe(200);
+    expect(failedOrderRead.body.status).toBe(OrderStatus.PAYMENT_FAILED);
   });
 });
