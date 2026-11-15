@@ -1,22 +1,83 @@
-FROM node:20-slim
-
+# ==========================================
+# Stage 1: Install all workspace dependencies
+# ==========================================
+FROM node:20-alpine AS deps
+RUN apk add --no-cache libc6-compat python3 make g++ openssl
 WORKDIR /app
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
+COPY package.json package-lock.json .npmrc ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
 
 RUN npm ci
 
-COPY apps/api apps/api
+# ==========================================
+# Stage 2: Generate Prisma Client & Build API
+# ==========================================
+FROM node:20-alpine AS builder
+RUN apk add --no-cache libc6-compat openssl
+WORKDIR /app
 
-RUN npx prisma generate --schema=apps/api/prisma/schema.prisma \
-  && npm run build:api
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json .npmrc ./
+COPY apps/api ./apps/api
+COPY apps/web/package.json ./apps/web/
+
+# Build-only placeholders allow Prisma Client generation without production credentials.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
+ENV DIRECT_URL="postgresql://build:build@localhost:5432/build?schema=public"
+RUN npm run prisma:generate --workspace=@brewlite/api
+RUN npm run build --workspace=@brewlite/api
+
+# ==========================================
+# Stage 3: Install production-only dependencies
+# ==========================================
+FROM node:20-alpine AS prod-deps
+RUN apk add --no-cache libc6-compat python3 make g++ openssl
+WORKDIR /app
+
+COPY package.json package-lock.json .npmrc ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+
+RUN npm ci --workspace=@brewlite/api --include-workspace-root=false --omit=dev && \
+    mkdir -p /app/apps/api/node_modules
+
+# ==========================================
+# Stage 4: Lightweight Production Runner
+# ==========================================
+FROM node:20-alpine AS runner
+RUN apk add --no-cache libc6-compat openssl curl
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=4000
+ENV PATH="/app/node_modules/.bin:$PATH"
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nestjs
+
+# Copy production dependencies + Prisma Client & Prisma CLI (for safe migrations)
+COPY --from=prod-deps --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+RUN mkdir -p ./node_modules/.bin && \
+    ln -sf ../prisma/build/index.js ./node_modules/.bin/prisma
+
+# Copy compiled application & Prisma folder
+COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./apps/api/prisma
+
+WORKDIR /app/apps/api
+USER nestjs
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node apps/api/dist/src/main.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:4000/health >/dev/null || exit 1
+
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS_ON_START:-false}\" = \"true\" ]; then prisma migrate deploy --schema=prisma/schema.prisma; fi && if [ -f dist/main.js ]; then exec node dist/main.js; else exec node dist/src/main.js; fi"]

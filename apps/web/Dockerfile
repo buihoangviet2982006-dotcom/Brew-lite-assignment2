@@ -1,10 +1,27 @@
-FROM node:20-slim
-
+# ==========================================
+# Stage 1: Install workspace dependencies
+# ==========================================
+FROM node:20-alpine AS deps
+RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json .npmrc ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+
+RUN npm ci
+
+# ==========================================
+# Stage 2: Build Next.js Standalone Application
+# ==========================================
+FROM node:20-alpine AS builder
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json .npmrc ./
+COPY apps/web ./apps/web
+COPY apps/api/package.json ./apps/api/
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000
 ARG NEXT_PUBLIC_APP_NAME=BrewLite
@@ -13,24 +30,40 @@ ARG NEXT_PUBLIC_VIETQR_ACCOUNT_NO=0000000001
 ARG NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=BrewLite
 ARG NEXT_PUBLIC_VIETQR_TEMPLATE=compact2
 
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
-ENV NEXT_PUBLIC_VIETQR_BANK_ID=$NEXT_PUBLIC_VIETQR_BANK_ID
-ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NO=$NEXT_PUBLIC_VIETQR_ACCOUNT_NO
-ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=$NEXT_PUBLIC_VIETQR_ACCOUNT_NAME
-ENV NEXT_PUBLIC_VIETQR_TEMPLATE=$NEXT_PUBLIC_VIETQR_TEMPLATE
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME}
+ENV NEXT_PUBLIC_VIETQR_BANK_ID=${NEXT_PUBLIC_VIETQR_BANK_ID}
+ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NO=${NEXT_PUBLIC_VIETQR_ACCOUNT_NO}
+ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=${NEXT_PUBLIC_VIETQR_ACCOUNT_NAME}
+ENV NEXT_PUBLIC_VIETQR_TEMPLATE=${NEXT_PUBLIC_VIETQR_TEMPLATE}
 ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
+RUN npm run build --workspace=@brewlite/web
 
-RUN npm ci
+# ==========================================
+# Stage 3: Lightweight Production Runner
+# ==========================================
+FROM node:20-alpine AS runner
+RUN apk add --no-cache libc6-compat curl
 
-COPY apps/web apps/web
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
-RUN npm run build:web
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+
+USER nextjs
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start", "--workspace=@brewlite/web"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/menu >/dev/null || exit 1
+
+CMD ["sh", "-c", "if [ -f apps/web/server.js ]; then exec node apps/web/server.js; else exec node server.js; fi"]

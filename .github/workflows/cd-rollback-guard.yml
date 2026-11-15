@@ -1,0 +1,115 @@
+name: CD Pipeline Guard & Automated Rollback
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "ci/**"
+  pull_request:
+    branches:
+      - main
+      - develop
+      - "ci/task-5.3-cd-deploy"
+  workflow_dispatch:
+    inputs:
+      simulate_error:
+        description: "Gia lap loi de kiem thu Rollback (true / false)"
+        required: false
+        default: "false"
+      target_environment:
+        description: "Moi truong can Rollback (staging / production)"
+        required: false
+        default: "staging"
+      rollback_to_sha:
+        description: "Ma Commit (SHA) on dinh can khoi phuc ve"
+        required: false
+        default: "HEAD~1"
+
+concurrency:
+  group: cd-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------
+  # BƯỚC 1: CỔNG KIỂM SOÁT CHẤT LƯỢNG (DỪNG PIPELINE NGAY KHI CÓ LỖI)
+  # ------------------------------------------------------------------
+  quality-gate-fail-fast:
+    name: "1. Quality Gate (Fail-Fast on Error)"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Project Manifest & Fail-Fast Condition
+        continue-on-error: false
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
+          sed -i 's/\r$//' scripts/rollback-deploy.sh
+          bash -n scripts/rollback-deploy.sh
+          if [ "${{ github.event.inputs.simulate_error }}" = "true" ]; then
+            echo "Phat hien loi gia lap! Dung pipeline ngay lap tuc (Fail-fast)."
+            exit 1
+          fi
+          echo "Quality Gate Passed!"
+
+  # ------------------------------------------------------------------
+  # BƯỚC 2: KIỂM TRA TRIỂN KHAI & SMOKE TEST
+  # (Tự động dừng nếu Bước 1 báo lỗi)
+  # ------------------------------------------------------------------
+  deploy-verification:
+    name: "2. Deploy Gate & Smoke Verification"
+    runs-on: ubuntu-latest
+    needs: [quality-gate-fail-fast]
+    if: success()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify Rollback Readiness & Healthcheck
+        continue-on-error: false
+        run: |
+          sed -i 's/\r$//' scripts/rollback-deploy.sh
+          chmod +x scripts/rollback-deploy.sh
+          bash scripts/rollback-deploy.sh "staging-verify" "${{ github.sha }}" "HEAD~1"
+
+  # ------------------------------------------------------------------
+  # BƯỚC 3: KỊCH BẢN ROLLBACK TỰ ĐỘNG KHI PIPELINE HOẶC DEPLOY LỖI
+  # ------------------------------------------------------------------
+  automated-rollback:
+    name: "3. Automated Rollback on Pipeline/Deploy Failure"
+    runs-on: ubuntu-latest
+    needs: [quality-gate-fail-fast, deploy-verification]
+    if: always() && (needs.quality-gate-fail-fast.result == 'failure' || needs.deploy-verification.result == 'failure')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Execute Automated Rollback Script
+        run: |
+          sed -i 's/\r$//' scripts/rollback-deploy.sh
+          chmod +x scripts/rollback-deploy.sh
+          ENV_NAME="${{ github.event.inputs.target_environment || 'staging' }}"
+          TARGET_SHA="${{ github.event.inputs.rollback_to_sha || 'HEAD~1' }}"
+          bash scripts/rollback-deploy.sh "${ENV_NAME}" "${{ github.sha }}" "${TARGET_SHA}"
+
+      - name: Upload Rollback Audit Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollback-audit-report-${{ github.run_id }}
+          path: rollback-logs/
+          retention-days: 14

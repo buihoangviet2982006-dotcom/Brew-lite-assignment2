@@ -32,6 +32,8 @@ services:
       - "${PORT:-4000}:4000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-brewlite}:${POSTGRES_PASSWORD:-brewlite_secret}@postgres:5432/${POSTGRES_DB:-brewlite2_db}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-brewlite}:${POSTGRES_PASSWORD:-brewlite_secret}@postgres:5432/${POSTGRES_DB:-brewlite2_db}?schema=public
+      RUN_MIGRATIONS_ON_START: "true"
       PORT: 4000
       NODE_ENV: ${NODE_ENV:-production}
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
