@@ -467,11 +467,11 @@ Mỗi lần build qua pipeline CD sẽ tạo 2 image (`apps/api/Dockerfile` và 
 ### 6.4. Thông Tin Bàn Giao Production & Demo (Task 5.4)
 
 | Hạng mục bàn giao | Giá trị / Liên kết | Trạng thái |
-| :--- | :--- | :--- |
-| **Frontend Web (Vercel HTTPS)** | `https://<brewlite-web>.vercel.app/menu` *(Cập nhật URL thực tế sau khi deploy `main`)* | ⏳ Chờ deploy `main` |
-| **Backend API (Render HTTPS)** | `https://<brewlite-api>.onrender.com/health` *(Cập nhật URL thực tế sau khi deploy `main`)* | ⏳ Chờ deploy `main` |
+| :--- | :--- | :---: |
+| **Frontend Web (Vercel HTTPS)** | https://brew-lite-assignment2-xwcm.vercel.app (Menu: https://brew-lite-assignment2-xwcm.vercel.app/menu) | ✅ Live (HTTP 200) |
+| **Backend API (Render HTTPS)** | https://brew-lite-assignment2.onrender.com (Health: https://brew-lite-assignment2.onrender.com/health) | ✅ Live (HTTP 200) |
 | **Release Tag & Notes** | `v1.0.0` ([`CHANGELOG.md`](./CHANGELOG.md)) | ⏳ Gắn tag khi merge `main` |
-| **Video Demo E2E Flow** | `<link-video-demo>` *(Ghi hình luồng Order → QR → Webhook → Kitchen → Inventory)* | ⏳ Chờ quay sau deploy |
+| **Video Demo E2E Flow** | `<link-video-demo>` *(Ghi hình luồng Order → QR → Webhook → Kitchen → Inventory)* | ⏳ Chờ quay |
 
 #### Phương án B: Triển khai Trực tiếp từ Container Registry trên VPS / Server Docker
 
