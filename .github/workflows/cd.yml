@@ -1,106 +1,143 @@
-name: Continuous Delivery
+name: Triển khai liên tục
 
 on:
-  push:
-    branches:
-      - main
-      - develop
-    tags:
-      - 'v*.*.*'
-  pull_request:
-    branches:
-      - main
-      - develop
-    paths:
-      - '.dockerignore'
-      - 'apps/api/Dockerfile'
-      - 'apps/web/Dockerfile'
-      - 'apps/web/next.config.mjs'
-      - '.github/workflows/cd.yml'
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Tích hợp liên tục"]
+    types: [completed]
+    branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  API_IMAGE_NAME: ${{ github.repository_owner }}/brewlite-api
-  WEB_IMAGE_NAME: ${{ github.repository_owner }}/brewlite-web
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  build-and-tag-images:
-    name: Build & Tag Docker Images (API & Web)
+  deploy-production:
+    name: Chạy migration Render, triển khai API Render và Web Vercel
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      api_tags: ${{ steps.meta_api.outputs.tags }}
-      web_tags: ${{ steps.meta_web.outputs.tags }}
-      api_version: ${{ steps.meta_api.outputs.version }}
-
+    environment: production
     steps:
-      - name: 1. Checkout repository
+      - name: Lấy mã nguồn đã được kiểm thử
         uses: actions/checkout@v4
-
-      - name: 2. Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Task 5.3 - STT 3 (Hoàng Gia Bảo): Bổ sung bước docker/login-action tại đây và bật push: true ở bước 5 & 6
-
-      - name: 3. Extract Docker metadata & tags for API (Commit SHA & SemVer)
-        id: meta_api
-        uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=sha-,format=short
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+          ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: 4. Extract Docker metadata & tags for Web (Commit SHA & SemVer)
-        id: meta_web
-        uses: docker/metadata-action@v5
+      - name: Cài đặt Node.js 20
+        uses: actions/setup-node@v4
         with:
-          images: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=sha-,format=short
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+          node-version: 20
+          cache: npm
 
-      - name: 5. Build & Tag @brewlite/api Docker Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./apps/api/Dockerfile
-          load: true
-          push: false
-          tags: ${{ steps.meta_api.outputs.tags }}
-          labels: ${{ steps.meta_api.outputs.labels }}
-          cache-from: type=gha,scope=brewlite-api
-          cache-to: type=gha,mode=max,scope=brewlite-api
+      - name: Cài đặt thư viện
+        run: npm ci
 
-      - name: 6. Build & Tag @brewlite/web Docker Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./apps/web/Dockerfile
-          load: true
-          push: false
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:4000' }}
-            NEXT_PUBLIC_APP_NAME=${{ vars.NEXT_PUBLIC_APP_NAME || 'BrewLite' }}
-          tags: ${{ steps.meta_web.outputs.tags }}
-          labels: ${{ steps.meta_web.outputs.labels }}
-          cache-from: type=gha,scope=brewlite-web
-          cache-to: type=gha,mode=max,scope=brewlite-web
-
-      - name: 7. Verify built Docker Images & Tags
+      - name: Xác nhận mã nguồn vẫn là phiên bản mới nhất trên nhánh main
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          echo "=== Generated API Tags ==="
-          echo "${{ steps.meta_api.outputs.tags }}"
-          echo "=== Generated Web Tags ==="
-          echo "${{ steps.meta_web.outputs.tags }}"
-          echo "=== Built Docker Images ==="
-          docker images
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
+            echo "Nhánh main đã có phiên bản mới hơn; dừng triển khai mã nguồn cũ $EXPECTED_SHA."
+            exit 1
+          fi
+
+      - name: Áp dụng migration Prisma lên Render PostgreSQL
+        run: npm run prisma:deploy --workspace=@brewlite/api
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.RENDER_DATABASE_URL }}
+
+      - name: Xác nhận nhánh main chưa có phiên bản mới hơn
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
+            echo "Nhánh main đã thay đổi sau migration; dừng triển khai mã nguồn cũ $EXPECTED_SHA."
+            exit 1
+          fi
+
+      - name: Kích hoạt triển khai API trên Render
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK" || {
+            echo "Chưa cấu hình RENDER_DEPLOY_HOOK trong môi trường thật."
+            exit 1
+          }
+          curl --fail --silent --show-error \
+            --output /dev/null \
+            --request POST \
+            "$RENDER_DEPLOY_HOOK"
+
+      - name: Chờ API sẵn sàng
+        env:
+          API_PRODUCTION_URL: ${{ vars.API_PRODUCTION_URL }}
+        run: |
+          test -n "$API_PRODUCTION_URL" || {
+            echo "Chưa cấu hình API_PRODUCTION_URL trong môi trường thật."
+            exit 1
+          }
+          sleep 20
+          for attempt in $(seq 1 36); do
+            if curl --fail --silent --show-error \
+              --output /dev/null \
+              "${API_PRODUCTION_URL%/}/health"; then
+              echo "Kiểm tra sức khỏe API thành công."
+              exit 0
+            fi
+            echo "API chưa sẵn sàng (lần thử $attempt/36)."
+            sleep 10
+          done
+          echo "API chưa sẵn sàng sau 6 phút."
+          exit 1
+
+      - name: Xác nhận nhánh main chưa có phiên bản mới hơn
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
+            echo "Nhánh main đã có phiên bản mới hơn; dừng triển khai Web từ mã nguồn cũ $EXPECTED_SHA."
+            exit 1
+          fi
+
+      - name: Kích hoạt triển khai Web trên Vercel
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          test -n "$VERCEL_DEPLOY_HOOK" || {
+            echo "Chưa cấu hình VERCEL_DEPLOY_HOOK trong môi trường thật."
+            exit 1
+          }
+          curl --fail --silent --show-error \
+            --output /dev/null \
+            --request POST \
+            "$VERCEL_DEPLOY_HOOK"
+
+      - name: Chờ trang menu hoạt động
+        env:
+          WEB_PRODUCTION_URL: ${{ vars.WEB_PRODUCTION_URL }}
+        run: |
+          test -n "$WEB_PRODUCTION_URL" || {
+            echo "Chưa cấu hình WEB_PRODUCTION_URL trong môi trường thật."
+            exit 1
+          }
+          sleep 20
+          for attempt in $(seq 1 36); do
+            if curl --fail --silent --show-error \
+              --output /dev/null \
+              "${WEB_PRODUCTION_URL%/}/menu"; then
+              echo "Kiểm tra nhanh trang Web thành công."
+              exit 0
+            fi
+            echo "Web chưa sẵn sàng (lần thử $attempt/36)."
+            sleep 10
+          done
+          echo "Web chưa hoạt động sau 6 phút."
+          exit 1

@@ -23,6 +23,9 @@ COPY package.json package-lock.json .npmrc ./
 COPY apps/api ./apps/api
 COPY apps/web/package.json ./apps/web/
 
+# Build-only placeholders allow Prisma Client generation without production credentials.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
+ENV DIRECT_URL="postgresql://build:build@localhost:5432/build?schema=public"
 RUN npm run prisma:generate --workspace=@brewlite/api
 RUN npm run build --workspace=@brewlite/api
 
