@@ -47,7 +47,7 @@ RUN npm ci --workspace=@brewlite/api --include-workspace-root=false --omit=dev &
 # Stage 4: Lightweight Production Runner
 # ==========================================
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat openssl curl
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -78,6 +78,6 @@ USER nestjs
 EXPOSE 4000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:4000/health || exit 1
+  CMD curl -fsS http://127.0.0.1:4000/health >/dev/null || exit 1
 
-CMD ["sh", "-c", "if [ -f dist/main.js ]; then exec node dist/main.js; else exec node dist/src/main.js; fi"]
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS_ON_START:-false}\" = \"true\" ]; then prisma migrate deploy --schema=prisma/schema.prisma; fi && if [ -f dist/main.js ]; then exec node dist/main.js; else exec node dist/src/main.js; fi"]

@@ -78,19 +78,17 @@ nhật ký. Bảo vệ nhánh `main` bằng yêu cầu duyệt mã và trạng t
 
 ## Thứ tự triển khai và migration
 
-`.github/workflows/cd.yml` chỉ chạy sau khi workflow **Tích hợp liên tục** thành
-công trên nhánh `main`. Không có đường triển khai thủ công bỏ qua CI. Workflow
-không chạy song song nhiều đợt triển khai và kiểm tra mã nguồn đã được kiểm thử
-có còn là phiên bản mới nhất của `main` hay không.
+`.github/workflows/cd.yml` hiện thực đầy đủ chuỗi Continuous Delivery:
+
+`Push/Tag (main / v*.*.*) → Lint & Test → Build → Docker Image (SHA / SemVer) → Push GHCR → Safe Migration → Deploy → Smoke Test → Dừng & Rollback khi lỗi`
 
 Các bước triển khai:
 
-1. Chạy `prisma migrate deploy` trên PostgreSQL của Render bằng URL kết nối bên
-   ngoài. Prisma chỉ áp dụng những migration chưa được ghi nhận là đã chạy.
-2. Nếu migration thất bại, dừng quy trình; không gọi điểm kích hoạt triển khai
-   API hoặc Web.
-3. Kích hoạt triển khai API trên Render và chờ `/health` phản hồi thành công.
-4. Kích hoạt triển khai Web trên Vercel và chờ `/menu` hoạt động.
+1. **Quality Gate:** Chạy `npm ci`, `prisma generate`, `npm run lint`, `npm run test` và `npm run build`. Nếu bất kỳ bước nào lỗi, pipeline dừng ngay lập tức.
+2. **Docker Image & Registry:** Build multi-stage Docker image cho `@brewlite/api` và `@brewlite/web`, gắn tag theo commit SHA (`sha-<short>`) và Semantic Version (`v*.*.*`), rồi đẩy lên GitHub Container Registry (`ghcr.io`).
+3. **Safe Migration:** Chạy `prisma migrate deploy` trên PostgreSQL của Render bằng URL kết nối bên ngoài (`RENDER_DATABASE_URL`). Nếu migration thất bại, dừng quy trình; không gọi điểm kích hoạt triển khai API hoặc Web.
+4. **Deploy & Smoke Test:** Kích hoạt triển khai API trên Render và kiểm tra `/health`; tiếp theo kích hoạt triển khai Web trên Vercel và kiểm tra `/menu`.
+5. **Dừng & Rollback khi lỗi:** Nếu bước triển khai hoặc smoke test thất bại, job `rollback-on-failure` kích hoạt `scripts/rollback-deploy.sh`, lưu artifact kiểm toán và hướng dẫn khôi phục về phiên bản ổn định gần nhất.
 
 Không chạy `prisma db push` trên môi trường thật. Chỉ thay đổi schema bằng các
 tệp migration đã được kiểm tra và duyệt. Thiết kế thay đổi theo mô hình mở rộng/thu hẹp
@@ -103,7 +101,7 @@ phục từ bản sao lưu theo quy trình khôi phục đã được duyệt.
 ## Migration khởi tạo và cơ sở dữ liệu hiện có
 
 Kho mã nguồn có migration khởi tạo tại
-`apps/api/prisma/migrations/20261115143000_initial_schema`. Migration tạo schema
+`apps/api/prisma/migrations/20261114163354_init_brewlite_schema`. Migration tạo schema
 từ `apps/api/prisma/schema.prisma` trong một giao dịch PostgreSQL.
 
 Với PostgreSQL trên Render **mới và chưa có bảng**, CI sẽ áp dụng migration này
@@ -116,7 +114,7 @@ người vận hành mới được đánh dấu migration này là đã áp d�
 ```powershell
 $env:DATABASE_URL = "<URL kết nối PostgreSQL bên ngoài trên Render>"
 $env:DIRECT_URL = $env:DATABASE_URL
-npx prisma migrate resolve --schema apps/api/prisma/schema.prisma --applied 20261115143000_initial_schema
+npx prisma migrate resolve --schema apps/api/prisma/schema.prisma --applied 20261114163354_init_brewlite_schema
 ```
 
 Không đánh dấu migration khởi tạo là đã áp dụng nếu schema bị sai khác. Hãy xử

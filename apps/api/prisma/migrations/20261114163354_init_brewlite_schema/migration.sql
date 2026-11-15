@@ -1,5 +1,3 @@
-BEGIN;
-
 -- CreateEnum
 CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PAID', 'PREPARING', 'COMPLETED', 'CANCELLED', 'PAYMENT_FAILED');
 
@@ -211,5 +209,3 @@ ALTER TABLE "_OrderItemToTopping" ADD CONSTRAINT "_OrderItemToTopping_A_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "_OrderItemToTopping" ADD CONSTRAINT "_OrderItemToTopping_B_fkey" FOREIGN KEY ("B") REFERENCES "toppings"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
-COMMIT;

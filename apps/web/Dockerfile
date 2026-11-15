@@ -25,8 +25,17 @@ COPY apps/api/package.json ./apps/api/
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000
 ARG NEXT_PUBLIC_APP_NAME=BrewLite
+ARG NEXT_PUBLIC_VIETQR_BANK_ID=MB
+ARG NEXT_PUBLIC_VIETQR_ACCOUNT_NO=0000000001
+ARG NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=BrewLite
+ARG NEXT_PUBLIC_VIETQR_TEMPLATE=compact2
+
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME}
+ENV NEXT_PUBLIC_VIETQR_BANK_ID=${NEXT_PUBLIC_VIETQR_BANK_ID}
+ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NO=${NEXT_PUBLIC_VIETQR_ACCOUNT_NO}
+ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=${NEXT_PUBLIC_VIETQR_ACCOUNT_NAME}
+ENV NEXT_PUBLIC_VIETQR_TEMPLATE=${NEXT_PUBLIC_VIETQR_TEMPLATE}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build --workspace=@brewlite/web
@@ -35,7 +44,7 @@ RUN npm run build --workspace=@brewlite/web
 # Stage 3: Lightweight Production Runner
 # ==========================================
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat curl
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -55,6 +64,6 @@ USER nextjs
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/menu || exit 1
+  CMD curl -fsS http://127.0.0.1:3000/menu >/dev/null || exit 1
 
 CMD ["sh", "-c", "if [ -f apps/web/server.js ]; then exec node apps/web/server.js; else exec node server.js; fi"]

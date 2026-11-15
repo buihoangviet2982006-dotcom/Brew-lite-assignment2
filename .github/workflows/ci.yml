@@ -1,4 +1,4 @@
-name: Tích hợp liên tục
+name: Continuous Integration
 
 on:
   pull_request:
@@ -8,34 +8,33 @@ on:
 
 jobs:
   quality-gate:
-    name: Cài đặt, kiểm tra mã nguồn, kiểm thử và build
+    name: Install, Lint, Unit Test, Build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Lấy mã nguồn
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cài đặt Node.js 20
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
-      - name: 1. Cài đặt thư viện
-        run: |
-          npm ci
+      - name: 1. Install dependencies
+        run: npm ci
 
-      - name: 2. Sinh Prisma Client
+      - name: 2. Generate Prisma Client
         run: npm run db:generate
         env:
           DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
           DIRECT_URL: postgresql://build:build@localhost:5432/build?schema=public
 
-      - name: 3. Kiểm tra quy chuẩn mã nguồn
+      - name: 3. Run Lint
         run: npm run lint
 
-      - name: 4. Chạy kiểm thử
+      - name: 4. Run Unit & Integration Tests
         run: npm run test
 
-      - name: 5. Build ứng dụng
+      - name: 5. Build Applications
         run: npm run build

@@ -1,143 +1,282 @@
-name: Triển khai liên tục
+name: Continuous Delivery
 
 on:
-  workflow_run:
-    workflows: ["Tích hợp liên tục"]
-    types: [completed]
-    branches: [main]
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - ".dockerignore"
+      - "apps/api/Dockerfile"
+      - "apps/web/Dockerfile"
+      - "apps/web/next.config.mjs"
+      - ".github/workflows/cd.yml"
+      - "scripts/rollback-deploy.sh"
+  workflow_dispatch:
 
 concurrency:
-  group: production-deployment
+  group: production-deployment-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: read
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE_NAME: ${{ github.repository_owner }}/brewlite-api
+  WEB_IMAGE_NAME: ${{ github.repository_owner }}/brewlite-web
 
 jobs:
-  deploy-production:
-    name: Chạy migration Render, triển khai API Render và Web Vercel
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+  # ====================================================================
+  # 1. QUALITY GATE: Install -> Lint -> Unit/Integration Test -> Build
+  # ====================================================================
+  quality-gate:
+    name: "1. Quality Gate (Lint, Test & Build)"
     runs-on: ubuntu-latest
-    environment: production
     steps:
-      - name: Lấy mã nguồn đã được kiểm thử
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Cài đặt Node.js 20
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: "npm"
 
-      - name: Cài đặt thư viện
+      - name: Install dependencies
         run: npm ci
 
-      - name: Xác nhận mã nguồn vẫn là phiên bản mới nhất trên nhánh main
+      - name: Generate Prisma Client
+        run: npm run db:generate
         env:
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
-          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
-            echo "Nhánh main đã có phiên bản mới hơn; dừng triển khai mã nguồn cũ $EXPECTED_SHA."
-            exit 1
-          fi
+          DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
+          DIRECT_URL: postgresql://build:build@localhost:5432/build?schema=public
 
-      - name: Áp dụng migration Prisma lên Render PostgreSQL
-        run: npm run prisma:deploy --workspace=@brewlite/api
+      - name: Run Lint
+        run: npm run lint
+
+      - name: Run Tests
+        run: npm run test
+
+      - name: Build Applications
+        run: npm run build
+
+  # ====================================================================
+  # 2. DOCKER IMAGE: Build, Tag (SHA / SemVer) & Push to Registry (GHCR)
+  # ====================================================================
+  docker-build-push:
+    name: "2. Build & Push Docker Images"
+    needs: [quality-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api_tags: ${{ steps.meta_api.outputs.tags }}
+      web_tags: ${{ steps.meta_web.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata for API (SHA & SemVer)
+        id: meta_api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract Docker metadata for Web (SHA & SemVer)
+        id: meta_web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & Push @brewlite/api Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/api/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.meta_api.outputs.tags }}
+          labels: ${{ steps.meta_api.outputs.labels }}
+          cache-from: type=gha,scope=brewlite-api
+          cache-to: type=gha,mode=max,scope=brewlite-api
+
+      - name: Build & Push @brewlite/web Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:4000' }}
+            NEXT_PUBLIC_APP_NAME=${{ vars.NEXT_PUBLIC_APP_NAME || 'BrewLite' }}
+          tags: ${{ steps.meta_web.outputs.tags }}
+          labels: ${{ steps.meta_web.outputs.labels }}
+          cache-from: type=gha,scope=brewlite-web
+          cache-to: type=gha,mode=max,scope=brewlite-web
+
+  # ====================================================================
+  # 3. DEPLOY & SMOKE TEST: Safe Migration -> Render API -> Vercel Web
+  # ====================================================================
+  deploy-production:
+    name: "3. Safe Migration, Deploy Production & Smoke Test"
+    needs: [docker-build-push]
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Safe Database Migration (Prisma migrate deploy)
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.RENDER_DATABASE_URL }}
-
-      - name: Xác nhận nhánh main chưa có phiên bản mới hơn
-        env:
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
-          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
-            echo "Nhánh main đã thay đổi sau migration; dừng triển khai mã nguồn cũ $EXPECTED_SHA."
+          test -n "$DATABASE_URL" || {
+            echo "Chưa cấu hình secret RENDER_DATABASE_URL trong GitHub Environment production."
             exit 1
-          fi
+          }
+          npm run prisma:deploy --workspace=@brewlite/api
 
-      - name: Kích hoạt triển khai API trên Render
+      - name: Trigger Render API Deploy Hook
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           test -n "$RENDER_DEPLOY_HOOK" || {
-            echo "Chưa cấu hình RENDER_DEPLOY_HOOK trong môi trường thật."
+            echo "Chưa cấu hình secret RENDER_DEPLOY_HOOK trong GitHub Environment production."
             exit 1
           }
-          curl --fail --silent --show-error \
-            --output /dev/null \
-            --request POST \
-            "$RENDER_DEPLOY_HOOK"
+          curl --fail --silent --show-error --output /dev/null --request POST "$RENDER_DEPLOY_HOOK"
 
-      - name: Chờ API sẵn sàng
+      - name: Smoke Test API (/health)
         env:
           API_PRODUCTION_URL: ${{ vars.API_PRODUCTION_URL }}
         run: |
           test -n "$API_PRODUCTION_URL" || {
-            echo "Chưa cấu hình API_PRODUCTION_URL trong môi trường thật."
+            echo "Chưa cấu hình variable API_PRODUCTION_URL."
             exit 1
           }
           sleep 20
           for attempt in $(seq 1 36); do
-            if curl --fail --silent --show-error \
-              --output /dev/null \
-              "${API_PRODUCTION_URL%/}/health"; then
-              echo "Kiểm tra sức khỏe API thành công."
+            if curl --fail --silent --show-error --output /dev/null "${API_PRODUCTION_URL%/}/health"; then
+              echo "API health check passed!"
               exit 0
             fi
-            echo "API chưa sẵn sàng (lần thử $attempt/36)."
+            echo "Chờ API sẵn sàng (lần thử $attempt/36)..."
             sleep 10
           done
-          echo "API chưa sẵn sàng sau 6 phút."
+          echo "API health check thất bại sau 6 phút!"
           exit 1
 
-      - name: Xác nhận nhánh main chưa có phiên bản mới hơn
-        env:
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
-          if [ "$current_sha" != "$EXPECTED_SHA" ]; then
-            echo "Nhánh main đã có phiên bản mới hơn; dừng triển khai Web từ mã nguồn cũ $EXPECTED_SHA."
-            exit 1
-          fi
-
-      - name: Kích hoạt triển khai Web trên Vercel
+      - name: Trigger Vercel Web Deploy Hook
         env:
           VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
         run: |
           test -n "$VERCEL_DEPLOY_HOOK" || {
-            echo "Chưa cấu hình VERCEL_DEPLOY_HOOK trong môi trường thật."
+            echo "Chưa cấu hình secret VERCEL_DEPLOY_HOOK trong GitHub Environment production."
             exit 1
           }
-          curl --fail --silent --show-error \
-            --output /dev/null \
-            --request POST \
-            "$VERCEL_DEPLOY_HOOK"
+          curl --fail --silent --show-error --output /dev/null --request POST "$VERCEL_DEPLOY_HOOK"
 
-      - name: Chờ trang menu hoạt động
+      - name: Smoke Test Web (/menu)
         env:
           WEB_PRODUCTION_URL: ${{ vars.WEB_PRODUCTION_URL }}
         run: |
           test -n "$WEB_PRODUCTION_URL" || {
-            echo "Chưa cấu hình WEB_PRODUCTION_URL trong môi trường thật."
+            echo "Chưa cấu hình variable WEB_PRODUCTION_URL."
             exit 1
           }
           sleep 20
           for attempt in $(seq 1 36); do
-            if curl --fail --silent --show-error \
-              --output /dev/null \
-              "${WEB_PRODUCTION_URL%/}/menu"; then
-              echo "Kiểm tra nhanh trang Web thành công."
+            if curl --fail --silent --show-error --output /dev/null "${WEB_PRODUCTION_URL%/}/menu"; then
+              echo "Web smoke test passed!"
               exit 0
             fi
-            echo "Web chưa sẵn sàng (lần thử $attempt/36)."
+            echo "Chờ Web sẵn sàng (lần thử $attempt/36)..."
             sleep 10
           done
-          echo "Web chưa hoạt động sau 6 phút."
+          echo "Web smoke test thất bại sau 6 phút!"
           exit 1
+
+  # ====================================================================
+  # 4. STOP & ROLLBACK ON FAILURE
+  # ====================================================================
+  rollback-on-failure:
+    name: "4. Stop Pipeline & Trigger Rollback on Failure"
+    needs: [quality-gate, docker-build-push, deploy-production]
+    if: failure()
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Run Rollback Guard Script & Audit
+        env:
+          ROLLBACK_WEBHOOK_URL: ${{ secrets.ROLLBACK_WEBHOOK_URL }}
+        run: |
+          sed -i 's/\r$//' scripts/rollback-deploy.sh
+          chmod +x scripts/rollback-deploy.sh
+          bash scripts/rollback-deploy.sh "production" "${{ github.sha }}" "HEAD~1"
+
+      - name: Write Rollback Instructions to Job Summary
+        run: |
+          {
+            echo "## Deployment Pipeline Stopped — Rollback Required"
+            echo "- Commit thất bại: \`${{ github.sha }}\`"
+            echo "- Quy trình đã dừng tại bước lỗi để bảo vệ Production."
+            echo "- Chạy rollback thủ công qua Render/Vercel Dashboard hoặc CLI:"
+            echo "\`\`\`bash"
+            echo "bash scripts/rollback-deploy.sh production ${{ github.sha }} <LAST_STABLE_SHA>"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Rollback Audit Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cd-rollback-audit-${{ github.run_id }}
+          path: rollback-logs/
+          retention-days: 14
