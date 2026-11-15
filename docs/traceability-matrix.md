@@ -24,3 +24,12 @@ Tài liệu này theo dõi mối liên kết hai chiều giữa Yêu cầu nghi�
   - Kết quả: **6/6 PASSED**.
 - **Chạy tổng hợp Monorepo (`npm run test`)**: **21/21 PASSED** (0 failures).
 
+---
+
+## Ma Trận Truy Vết Sprint 2 (Task 5.3: Container Registry & Continuous Delivery)
+
+| Mã yêu cầu | Hạng mục / Nhiệm vụ | Thiết kế / Sơ đồ | Mã nguồn / Pipeline | Quy tắc kiểm chứng | Phạm vi / Minh chứng |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **NFR-04** | **Đóng gói Docker & Push Registry (Task 5.3)**<br>- Đóng gói Container `apps/api` và `apps/web`<br>- Gắn thẻ đa phiên bản (SHA, SemVer, branch ref, latest)<br>- Đẩy lên Container Registry (GHCR, Docker Hub) | [`docs/diagrams/deployment.puml`](./diagrams/deployment.puml)<br>(Ranh giới CI/CD & Container Registry) | [`.github/workflows/cd.yml`](../.github/workflows/cd.yml)<br>[`apps/api/Dockerfile`](../apps/api/Dockerfile)<br>[`apps/web/Dockerfile`](../apps/web/Dockerfile)<br>[`.dockerignore`](../.dockerignore) | **CD-PIPE-01**<br><br>**CD-TAG-01**<br><br>**CD-REG-01** | Kiểm tra cú pháp YAML GitHub Actions, kích hoạt trên push `main`/`develop`/`ci/*` và tag `v*`.<br><br>Gắn tag `sha-<commit>`, branch ref, SemVer `vX.Y.Z` và `latest`.<br><br>Đăng nhập & đẩy hình ảnh lên GHCR (`ghcr.io`) và Docker Hub khi có secret. |
+
+
