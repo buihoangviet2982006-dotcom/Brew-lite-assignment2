@@ -9,6 +9,8 @@ import {
   Post,
   Req,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import {
   AuthenticatedRequest,
@@ -62,12 +64,33 @@ export class PaymentsController {
   }
 
   /**
-   * POST /payments/sepay-webhook
-   * Tiếp nhận Webhook biến động số dư từ SePay (xác thực qua Header Authorization: Apikey <SEPAY_WEBHOOK_SECRET>)
+   * GET /payments/sepay-webhook
+   * Endpoint kiểm tra kết nối (ping/healthcheck) khi cấu hình URL Webhook trên SePay
    */
-  @Post('sepay-webhook')
+  @Get(['sepay-webhook', 'webhook'])
+  @HttpCode(HttpStatus.OK)
+  pingSepayWebhook() {
+    return {
+      success: true,
+      message: 'BrewLite SePay Webhook endpoint is active and ready',
+    };
+  }
+
+  /**
+   * POST /payments/sepay-webhook (hoặc POST /payments/webhook)
+   * Tiếp nhận Webhook biến động số dư từ SePay.
+   * Tắt forbidNonWhitelisted riêng cho route này để chấp nhận mọi trường phụ trong payload thực tế của SePay.
+   */
+  @Post(['sepay-webhook', 'webhook'])
   @HttpCode(HttpStatus.OK)
   @UseGuards(SepayWebhookGuard)
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: false,
+      forbidNonWhitelisted: false,
+      transform: true,
+    }),
+  )
   async handleSepayWebhook(@Body() payload: SepayWebhookDto) {
     return this.paymentsService.handleSepayWebhook(payload);
   }

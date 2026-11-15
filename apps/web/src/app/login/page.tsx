@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "../../store/auth.store";
@@ -9,15 +9,38 @@ import styles from "./login.module.css";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get("redirect") || "/menu";
+  const rawRedirect = searchParams.get("redirect");
+  const redirectUrl = rawRedirect || "/menu";
+  const isRegistered =
+    searchParams.get("registered") === "1" ||
+    searchParams.get("registered") === "true";
+  const prefilledEmail = searchParams.get("email") || "";
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(prefilledEmail);
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [serverError, setServerError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const login = useAuthStore((state) => state.login);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const initializeAuth = useAuthStore((state) => state.initialize);
+
+  useEffect(() => {
+    void initializeAuth();
+  }, [initializeAuth]);
+
+  useEffect(() => {
+    if (prefilledEmail && !email) {
+      setEmail(prefilledEmail);
+    }
+  }, [prefilledEmail, email]);
+
+  useEffect(() => {
+    if (isAuthenticated && !isSubmitting) {
+      router.push(redirectUrl);
+    }
+  }, [isAuthenticated, isSubmitting, redirectUrl, router]);
 
   const validate = () => {
     const errors: { email?: string; password?: string } = {};
@@ -49,7 +72,7 @@ function LoginForm() {
     setIsSubmitting(true);
     try {
       await login({
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password,
       });
       router.push(redirectUrl);
@@ -69,6 +92,16 @@ function LoginForm() {
           Đăng nhập để tích điểm và trải nghiệm đặt món tiện lợi
         </p>
       </div>
+
+      {isRegistered && !serverError && (
+        <div
+          data-testid="register-success-alert"
+          className={styles.alertSuccess}
+          role="status"
+        >
+          ✓ Đăng ký tài khoản thành công! Vui lòng nhập mật khẩu để đăng nhập.
+        </div>
+      )}
 
       {serverError && (
         <div data-testid="auth-error-alert" className={styles.alertError} role="alert">

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getProducts } from "../../lib/product-api";
 import {
   clearCheckoutCart,
   createOrder,
@@ -13,14 +12,19 @@ import {
 } from "../../lib/order-api";
 import {
   clearIdempotencyKey,
+  getEnvVietQrBankConfig,
   getOrCreateIdempotencyKey,
+  getVietQrBankConfig,
   initiatePayment,
 } from "../../lib/payment-api";
 import {
   SIZE_EXTRA_PRICE_MAP,
   useCartStore,
 } from "../../store/cart.store";
-import { VietQrPaymentModal } from "../../components/checkout/VietQrPaymentModal";
+import {
+  QrCodeMatrixSvg,
+  VietQrPaymentModal,
+} from "../../components/checkout/VietQrPaymentModal";
 import type {
   CheckoutCartItem,
   CreatedOrderResponse,
@@ -29,17 +33,44 @@ import type {
 import type {
   PaymentApiError,
   PaymentResultResponse,
-  PaymentSimulationScenario,
+  VietQrBankInfo,
 } from "../../types/payment";
 import styles from "./checkout.module.css";
+
+function formatBankDisplayName(bankId: string): string {
+  const upper = (bankId || "MB").toUpperCase();
+  if (upper === "MB" || upper === "MBBANK") {
+    return "MB Bank (Ngân hàng Quân Đội)";
+  }
+  return `Ngân hàng ${bankId}`;
+}
+
+const KNOWN_PROMOTIONS: Record<
+  string,
+  { discountValue: number; minOrderAmount: number; label: string }
+> = {
+  WELCOME10: {
+    discountValue: 10000,
+    minOrderAmount: 40000,
+    label: "Giảm 10.000đ cho đơn từ 40.000đ",
+  },
+  BREWLITE20: {
+    discountValue: 20000,
+    minOrderAmount: 80000,
+    label: "Giảm 20.000đ cho đơn từ 80.000đ",
+  },
+  FREESHIP: {
+    discountValue: 15000,
+    minOrderAmount: 50000,
+    label: "Giảm 15.000đ cho đơn từ 50.000đ",
+  },
+};
 
 export default function CheckoutPage() {
   const [items, setItems] = useState<CheckoutCartItem[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [promotionCode, setPromotionCode] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("WALLET");
-  const [simulateScenario, setSimulateScenario] =
-    useState<PaymentSimulationScenario>("QR");
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [requireLogin, setRequireLogin] = useState(false);
@@ -50,15 +81,30 @@ export default function CheckoutPage() {
     useState<PaymentResultResponse | null>(null);
   const [completedPayment, setCompletedPayment] =
     useState<PaymentResultResponse | null>(null);
-  const [devTokenInput, setDevTokenInput] = useState("");
+  const [copiedInlineField, setCopiedInlineField] = useState<string | null>(
+    null
+  );
+  const [inlineQrImgError, setInlineQrImgError] = useState(false);
+  const [bankConfig, setBankConfig] = useState<VietQrBankInfo>(() =>
+    getEnvVietQrBankConfig()
+  );
 
   useEffect(() => {
     setItems(loadCheckoutCart());
     const savedToken = getStoredAccessToken();
     setToken(savedToken);
     if (savedToken) {
-      setDevTokenInput(savedToken);
+      setRequireLogin(false);
+    } else {
+      setRequireLogin(true);
+      setErrorMessage(
+        "Bạn cần đăng nhập tài khoản để đặt đơn và thanh toán. Vui lòng đăng nhập hoặc đăng ký tài khoản mới."
+      );
     }
+
+    void getVietQrBankConfig().then((resolved) => {
+      setBankConfig(resolved);
+    });
   }, []);
 
   const subtotal = useMemo(() => {
@@ -72,6 +118,59 @@ export default function CheckoutPage() {
       return sum + (item.basePrice + sizeExtra + toppingsPrice) * item.quantity;
     }, 0);
   }, [items]);
+
+  const normalizedPromoCode = promotionCode.trim().toUpperCase();
+  const matchedPromo = normalizedPromoCode
+    ? KNOWN_PROMOTIONS[normalizedPromoCode]
+    : undefined;
+
+  const estimatedDiscount = useMemo(() => {
+    if (!matchedPromo) return 0;
+    if (subtotal < matchedPromo.minOrderAmount) return 0;
+    return Math.min(subtotal, matchedPromo.discountValue);
+  }, [matchedPromo, subtotal]);
+
+  const estimatedTotal = Math.max(0, subtotal - estimatedDiscount);
+
+  const inlinePaymentRef = useMemo(() => {
+    if (activeQrPayment?.paymentRef) return activeQrPayment.paymentRef;
+    if (createdOrder?.orderId) {
+      const cleaned = createdOrder.orderId
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .toUpperCase()
+        .slice(0, 8);
+      return `BREW${cleaned || "ORDER001"}`;
+    }
+    return "BREWCHECKOUT";
+  }, [activeQrPayment, createdOrder]);
+
+  const activeBankInfo = activeQrPayment?.bankInfo ?? bankConfig;
+
+  const inlineVietQrUrl = useMemo(() => {
+    const query = new URLSearchParams({
+      amount: String(estimatedTotal),
+      addInfo: inlinePaymentRef,
+      accountName: activeBankInfo.accountName,
+    });
+    const tpl = activeBankInfo.template || "compact2";
+    return `https://img.vietqr.io/image/${encodeURIComponent(
+      activeBankInfo.bankId
+    )}-${encodeURIComponent(activeBankInfo.accountNo)}-${encodeURIComponent(
+      tpl
+    )}.png?${query.toString()}`;
+  }, [activeBankInfo, estimatedTotal, inlinePaymentRef]);
+
+  const handleCopyInline = async (field: string, value: string) => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(value);
+        setCopiedInlineField(field);
+        setTimeout(() => setCopiedInlineField(null), 2000);
+      }
+    } catch {
+      // Bỏ qua lỗi clipboard
+    }
+  };
 
   const updateItemQuantity = useCallback((key: string, delta: number) => {
     setItems((prev) => {
@@ -139,6 +238,8 @@ export default function CheckoutPage() {
       return;
     }
 
+    setToken(currentToken);
+
     try {
       setSubmitting(true);
 
@@ -164,7 +265,7 @@ export default function CheckoutPage() {
         setCreatedOrder(targetOrder);
       }
 
-      // Bước 2: Sinh Idempotency-Key và gọi POST /payments
+      // Bước 2: Sinh Idempotency-Key và gọi POST /payments để mở mã QR thanh toán
       const idempotencyKey = getOrCreateIdempotencyKey(
         targetOrder.orderId,
         paymentMethod
@@ -175,7 +276,6 @@ export default function CheckoutPage() {
           orderId: targetOrder.orderId,
           method: paymentMethod,
           idempotencyKey,
-          ...(simulateScenario !== "QR" ? { simulateScenario } : {}),
         },
         currentToken,
         idempotencyKey
@@ -193,6 +293,10 @@ export default function CheckoutPage() {
       const apiErr = err as CreateOrderApiError & PaymentApiError;
 
       if (apiErr.status === 401) {
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("accessToken");
+        }
+        setToken(null);
         setRequireLogin(true);
         setErrorMessage(
           "Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại để tiếp tục."
@@ -201,7 +305,7 @@ export default function CheckoutPage() {
         setOutOfStockIds(apiErr.outOfStockProductIds ?? []);
         setErrorMessage(
           apiErr.message ||
-          "Một số sản phẩm trong giỏ đã hết hàng hoặc không đủ số lượng. Vui lòng cập nhật lại giỏ hàng."
+            "Một số sản phẩm trong giỏ đã hết hàng hoặc không đủ số lượng. Vui lòng cập nhật lại giỏ hàng."
         );
       } else {
         // Lỗi thanh toán 400 / 504 -> đơn đã được rollback kho, reset createdOrder để khách thử lại
@@ -211,54 +315,12 @@ export default function CheckoutPage() {
         setCreatedOrder(null);
         setErrorMessage(
           apiErr.message ||
-          "Thanh toán không thành công. Giỏ hàng của bạn vẫn được giữ nguyên để thử lại."
+            "Thanh toán không thành công. Giỏ hàng của bạn vẫn được giữ nguyên để thử lại."
         );
       }
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleLoadSampleCart = async () => {
-    try {
-      setErrorMessage("");
-      const products = await getProducts();
-      const available = products.filter((p) => p.isAvailable).slice(0, 2);
-      if (available.length === 0) {
-        setErrorMessage(
-          "Không tìm thấy sản phẩm còn hàng từ API GET /products."
-        );
-        return;
-      }
-      const sample: CheckoutCartItem[] = available.map((p, idx) => ({
-        key: `${p.id}-M-${idx}`,
-        productId: p.id,
-        name: p.name,
-        basePrice: p.basePrice,
-        imageUrl: p.imageUrl,
-        size: idx === 0 ? "M" : "L",
-        quantity: 1,
-        toppings: [],
-      }));
-      saveCheckoutCart(sample);
-      setItems(sample);
-      setCreatedOrder(null);
-      setCompletedPayment(null);
-      setActiveQrPayment(null);
-    } catch {
-      setErrorMessage(
-        "Không thể tải sản phẩm mẫu. Hãy đảm bảo Backend đang chạy ở cổng 4000."
-      );
-    }
-  };
-
-  const handleSaveDevToken = () => {
-    const trimmed = devTokenInput.trim();
-    if (!trimmed || typeof window === "undefined") return;
-    window.localStorage.setItem("accessToken", trimmed);
-    setToken(trimmed);
-    setRequireLogin(false);
-    setErrorMessage("");
   };
 
   return (
@@ -289,8 +351,16 @@ export default function CheckoutPage() {
                 <Link
                   href="/login?redirect=/checkout"
                   className={styles.secondaryButton}
+                  data-testid="checkout-login-link"
                 >
                   Đi tới trang Đăng nhập
+                </Link>
+                <Link
+                  href="/register?redirect=/checkout"
+                  className={styles.secondaryButton}
+                  data-testid="checkout-register-link"
+                >
+                  Đăng ký tài khoản mới
                 </Link>
               </div>
             )}
@@ -474,15 +544,61 @@ export default function CheckoutPage() {
                 <input
                   type="text"
                   className={styles.input}
-                  placeholder="Nhập mã ưu đãi (VD: WELCOME10, BREWLITE20)"
+                  placeholder="Nhập mã ưu đãi (VD: WELCOME10, BREWLITE20, FREESHIP)"
                   value={promotionCode}
                   onChange={(e) => setPromotionCode(e.target.value)}
                 />
+                {promotionCode && (
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={() => setPromotionCode("")}
+                  >
+                    Gỡ mã
+                  </button>
+                )}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                  marginTop: "10px",
+                }}
+              >
+                {Object.entries(KNOWN_PROMOTIONS).map(([code, info]) => {
+                  const isSelected = normalizedPromoCode === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() =>
+                        setPromotionCode(isSelected ? "" : code)
+                      }
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: "8px",
+                        border: isSelected
+                          ? "1.5px solid #75452f"
+                          : "1px dashed #c9b3a3",
+                        background: isSelected ? "#f6ede6" : "#faf7f2",
+                        color: "#75452f",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      🏷️ {code} ({info.label})
+                    </button>
+                  );
+                })}
               </div>
             </section>
 
-            <section className={styles.card}>
-              <h2 className={styles.cardTitle}>Phương thức thanh toán</h2>
+            <section className={styles.card} data-testid="checkout-payment-section">
+              <h2 className={styles.cardTitle}>
+                Phương thức thanh toán &amp; Mã QR Chuyển khoản
+              </h2>
               <div className={styles.methodGrid}>
                 <button
                   type="button"
@@ -497,7 +613,7 @@ export default function CheckoutPage() {
                   <div>
                     <div>Ví điện tử (WALLET)</div>
                     <span className={styles.methodSub}>
-                      Quét mã chuyển khoản VietQR / SePay
+                      Quét mã QR bằng MoMo, ZaloPay, VNPay, Viettel Money
                     </span>
                   </div>
                   <span>{paymentMethod === "WALLET" ? "●" : "○"}</span>
@@ -513,13 +629,113 @@ export default function CheckoutPage() {
                   onClick={() => setPaymentMethod("CARD")}
                 >
                   <div>
-                    <div>Thẻ ngân hàng (CARD)</div>
+                    <div>Thẻ / Ngân hàng (CARD)</div>
                     <span className={styles.methodSub}>
-                      Quét mã chuyển khoản VietQR / SePay
+                      Quét mã chuyển khoản nhanh Napas 247 VietQR
                     </span>
                   </div>
                   <span>{paymentMethod === "CARD" ? "●" : "○"}</span>
                 </button>
+              </div>
+
+              {/* Khung hiển thị trực tiếp Mã QR chuyển khoản ngay trên trang Thanh toán */}
+              <div
+                className={styles.qrLayout}
+                data-testid="inline-qr-transfer-box"
+                style={{
+                  marginTop: "18px",
+                  paddingTop: "16px",
+                  borderTop: "1px dashed #e5d9cf",
+                }}
+              >
+                <div className={styles.qrImageWrapper}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={inlineVietQrUrl}
+                    alt={`Mã QR chuyển khoản ${inlinePaymentRef}`}
+                    className={styles.qrImage}
+                    data-testid="checkout-inline-qr-image"
+                    onError={() => setInlineQrImgError(true)}
+                    style={{ display: inlineQrImgError ? "none" : "block" }}
+                  />
+                  {inlineQrImgError && (
+                    <QrCodeMatrixSvg
+                      payload={`VIETQR|${activeBankInfo.bankId}|${activeBankInfo.accountNo}|${estimatedTotal}|${inlinePaymentRef}`}
+                      size={188}
+                    />
+                  )}
+                  <span className={styles.qrSourceBadge}>
+                    {paymentMethod === "WALLET"
+                      ? "Quét bằng Ví điện tử / App Ngân hàng"
+                      : "Chuẩn Napas 247 VietQR"}
+                  </span>
+                </div>
+
+                <div className={styles.bankDetailsBox}>
+                  <div className={styles.bankRow}>
+                    <span className={styles.bankLabel}>Ngân hàng thụ hưởng</span>
+                    <strong className={styles.bankValue}>
+                      {formatBankDisplayName(activeBankInfo.bankId)}
+                    </strong>
+                  </div>
+
+                  <div className={styles.bankRow}>
+                    <span className={styles.bankLabel}>Chủ tài khoản</span>
+                    <strong className={styles.bankValue} data-testid="inline-qr-account-name">
+                      {activeBankInfo.accountName}
+                    </strong>
+                  </div>
+
+                  <div className={styles.bankRow}>
+                    <span className={styles.bankLabel}>Số tài khoản nhận</span>
+                    <div className={styles.copyGroup}>
+                      <strong className={styles.bankValue} data-testid="inline-qr-account-no">
+                        {activeBankInfo.accountNo}
+                      </strong>
+                      <button
+                        type="button"
+                        className={styles.copyBtn}
+                        onClick={() =>
+                          void handleCopyInline(
+                            "account",
+                            activeBankInfo.accountNo
+                          )
+                        }
+                      >
+                        {copiedInlineField === "account"
+                          ? "Đã chép"
+                          : "Sao chép"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={styles.bankRow}>
+                    <span className={styles.bankLabel}>Số tiền chuyển khoản</span>
+                    <strong className={styles.bankAmount}>
+                      {estimatedTotal.toLocaleString("vi-VN")}đ
+                    </strong>
+                  </div>
+
+                  <div className={styles.bankRowHighlight}>
+                    <div>
+                      <span className={styles.bankLabel}>
+                        Nội dung chuyển khoản
+                      </span>
+                      <strong className={styles.paymentRefCode}>
+                        {inlinePaymentRef}
+                      </strong>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.copyBtn}
+                      onClick={() =>
+                        void handleCopyInline("ref", inlinePaymentRef)
+                      }
+                    >
+                      {copiedInlineField === "ref" ? "Đã chép" : "Sao chép"}
+                    </button>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -529,15 +745,21 @@ export default function CheckoutPage() {
                 <span>Tạm tính ({items.length} món)</span>
                 <strong>{subtotal.toLocaleString("vi-VN")}đ</strong>
               </div>
-              {promotionCode.trim() && (
+              {normalizedPromoCode && (
                 <div className={styles.summaryRow}>
-                  <span>Mã khuyến mãi áp dụng</span>
-                  <strong>{promotionCode.trim().toUpperCase()}</strong>
+                  <span>
+                    Mã khuyến mãi ({normalizedPromoCode})
+                  </span>
+                  <strong style={{ color: "#15803d" }}>
+                    {estimatedDiscount > 0
+                      ? `-${estimatedDiscount.toLocaleString("vi-VN")}đ`
+                      : "Kiểm tra khi tạo đơn"}
+                  </strong>
                 </div>
               )}
               <div className={styles.summaryTotal}>
-                <span>Tổng cộng dự kiến</span>
-                <span>{subtotal.toLocaleString("vi-VN")}đ</span>
+                <span>Tổng cộng thanh toán</span>
+                <span>{estimatedTotal.toLocaleString("vi-VN")}đ</span>
               </div>
 
               <div style={{ marginTop: "18px" }}>
@@ -557,78 +779,15 @@ export default function CheckoutPage() {
           </>
         )}
 
-        {activeQrPayment && token && (
+        {activeQrPayment && (
           <VietQrPaymentModal
             payment={activeQrPayment}
-            token={token}
+            token={token || getStoredAccessToken() || ""}
             onPaymentSucceeded={handlePaymentSucceeded}
             onPaymentFailed={handlePaymentFailed}
             onClose={() => setActiveQrPayment(null)}
           />
         )}
-
-        <aside className={styles.devBox}>
-          <strong>Công cụ Kiểm thử nhanh (Dev / Sandbox Mode):</strong>
-          <div style={{ marginTop: "8px" }}>
-            <label
-              htmlFor="simulate-scenario-select"
-              style={{ display: "block", marginBottom: "4px", fontWeight: 600 }}
-            >
-              Chế độ xử lý khi bấm Thanh toán:
-            </label>
-            <select
-              id="simulate-scenario-select"
-              className={styles.input}
-              style={{ width: "100%" }}
-              value={simulateScenario}
-              onChange={(e) =>
-                setSimulateScenario(
-                  e.target.value as PaymentSimulationScenario
-                )
-              }
-              data-testid="simulate-scenario-select"
-            >
-              <option value="QR">
-                Mở mã QR VietQR + Polling &amp; SePay Sandbox Webhook (Mặc định)
-              </option>
-              <option value="SUCCESS">
-                Thanh toán Ví/Thẻ mô phỏng thành công tức thì (SUCCESS)
-              </option>
-              <option value="MOCK_FAIL">
-                Giả lập giao dịch bị từ chối / thiếu số dư (MOCK_FAIL - 400)
-              </option>
-              <option value="TIMEOUT">
-                Giả lập nghẽn mạng cổng thanh toán (TIMEOUT - 504)
-              </option>
-            </select>
-          </div>
-
-          <div className={styles.actionRow}>
-            <button
-              type="button"
-              className={styles.secondaryButton}
-              onClick={() => void handleLoadSampleCart()}
-            >
-              Nạp 2 món mẫu từ API vào giỏ
-            </button>
-          </div>
-          <div className={styles.promoRow} style={{ marginTop: "10px" }}>
-            <input
-              type="text"
-              className={styles.input}
-              placeholder="Dán Bearer JWT Token để kiểm thử..."
-              value={devTokenInput}
-              onChange={(e) => setDevTokenInput(e.target.value)}
-            />
-            <button
-              type="button"
-              className={styles.secondaryButton}
-              onClick={handleSaveDevToken}
-            >
-              Lưu Token
-            </button>
-          </div>
-        </aside>
       </div>
     </main>
   );

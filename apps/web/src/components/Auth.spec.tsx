@@ -8,12 +8,16 @@ import { useAuthStore } from '../store/auth.store';
 
 // Mock Next.js router & searchParams
 const mockPush = vi.fn();
+let mockSearchParamsMap: Record<string, string | null> = {
+  redirect: '/checkout',
+};
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
   }),
   useSearchParams: () => ({
-    get: (key: string) => (key === 'redirect' ? '/checkout' : null),
+    get: (key: string) => mockSearchParamsMap[key] ?? null,
   }),
 }));
 
@@ -38,6 +42,7 @@ describe('Frontend Authentication Flow (FR-04)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockPush.mockClear();
+    mockSearchParamsMap = { redirect: '/checkout' };
     window.localStorage.clear();
     useAuthStore.setState({
       user: null,
@@ -146,6 +151,25 @@ describe('Frontend Authentication Flow (FR-04)', () => {
 
       expect(container.textContent).toContain('Email hoặc mật khẩu không chính xác');
     });
+
+    it('5. Displays registration success banner and pre-fills email when redirected from /register', async () => {
+      mockSearchParamsMap = {
+        registered: '1',
+        email: 'new@brewlite.vn',
+        redirect: '/checkout',
+      };
+
+      await act(async () => {
+        root.render(<LoginPage />);
+      });
+
+      const successBanner = container.querySelector('[data-testid="register-success-alert"]');
+      expect(successBanner).not.toBeNull();
+      expect(successBanner?.textContent).toContain('Đăng ký tài khoản thành công');
+
+      const emailInput = container.querySelector('#email') as HTMLInputElement;
+      expect(emailInput.value).toBe('new@brewlite.vn');
+    });
   });
 
   describe('RegisterPage', () => {
@@ -183,7 +207,7 @@ describe('Frontend Authentication Flow (FR-04)', () => {
       expect(container.textContent).toContain('Mật khẩu xác nhận không khớp');
     });
 
-    it('3. Successfully registers new user, saves token, and redirects', async () => {
+    it('3. Successfully registers new user and redirects to /login to complete authentication flow', async () => {
       const mockResponse = {
         accessToken: 'new.registered.token',
         user: {
@@ -218,8 +242,10 @@ describe('Frontend Authentication Flow (FR-04)', () => {
         email: 'new@brewlite.vn',
         password: 'securepassword123',
       });
-      expect(mockPush).toHaveBeenCalledWith('/checkout');
-      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+      expect(mockPush).toHaveBeenCalledWith(
+        '/login?registered=1&email=new%40brewlite.vn&redirect=%2Fcheckout',
+      );
+      expect(useAuthStore.getState().isAuthenticated).toBe(false);
     });
 
     it('4. Displays alert message when email already exists (409 Conflict)', async () => {

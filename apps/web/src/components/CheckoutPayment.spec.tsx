@@ -15,6 +15,13 @@ describe("CheckoutPage & VietQR / SePay Sandbox Payment Flow", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(paymentApi, "getVietQrBankConfig").mockResolvedValue({
+      bankId: "MB",
+      accountNo: "0000000001",
+      accountName: "BrewLite",
+      template: "compact2",
+      source: "ENV_FALLBACK",
+    });
     window.localStorage.clear();
     window.sessionStorage.clear();
     container = document.createElement("div");
@@ -123,6 +130,13 @@ describe("CheckoutPage & VietQR / SePay Sandbox Payment Flow", () => {
     await act(async () => {
       root.render(<CheckoutPage />);
     });
+
+    // Không còn hiển thị Công cụ Kiểm thử nhanh trên trang thanh toán
+    expect(container.textContent).not.toContain("Công cụ Kiểm thử nhanh");
+    // Hiển thị trực tiếp khung mã QR chuyển khoản ngay trên trang thanh toán
+    expect(
+      container.querySelector('[data-testid="inline-qr-transfer-box"]')
+    ).not.toBeNull();
 
     // Đổi sang phương thức Thẻ ngân hàng (CARD) - vẫn dùng quét mã VietQR
     const cardBtn = container.querySelector(

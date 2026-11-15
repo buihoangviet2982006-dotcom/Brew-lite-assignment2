@@ -10,7 +10,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../../.env'],
+      envFilePath: ['../../.env', '.env'],
     }),
     PrismaModule,
     AuthModule,

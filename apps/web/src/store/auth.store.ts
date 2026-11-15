@@ -54,11 +54,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (credentials: RegisterCredentials) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await registerApi(credentials);
+      await registerApi(credentials);
+      // Sau khi đăng ký thành công, giữ trạng thái chưa đăng nhập để chuyển sang màn hình Đăng nhập (/login)
       set({
-        user: response.user,
-        token: response.accessToken,
-        isAuthenticated: true,
         isLoading: false,
         error: null,
       });

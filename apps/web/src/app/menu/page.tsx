@@ -110,12 +110,32 @@ export default function MenuPage() {
 
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           {hydrated && isAuthenticated && user ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               <span style={{ fontSize: "13px", color: "#61473b", fontWeight: 600 }}>
                 Hi, {user.email.split("@")[0]} ({user.loyaltyPoints} điểm)
               </span>
+              <Link
+                href="/orders"
+                data-testid="menu-orders-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "36px",
+                  padding: "0 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #75452f",
+                  background: "#ffffff",
+                  color: "#75452f",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                📦 Đơn hàng
+              </Link>
               <button
                 onClick={logout}
+                data-testid="menu-logout-btn"
                 style={{
                   minHeight: "36px",
                   padding: "0 12px",
@@ -132,25 +152,46 @@ export default function MenuPage() {
               </button>
             </div>
           ) : (
-            <Link
-              href="/login"
-              data-testid="menu-login-link"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                minHeight: "44px",
-                padding: "0 14px",
-                borderRadius: "12px",
-                border: "1.5px solid #75452f",
-                background: "#ffffff",
-                color: "#75452f",
-                fontSize: "14px",
-                fontWeight: 700,
-                textDecoration: "none",
-              }}
-            >
-              👤 Đăng nhập
-            </Link>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Link
+                href="/login"
+                data-testid="menu-login-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "44px",
+                  padding: "0 14px",
+                  borderRadius: "12px",
+                  border: "1.5px solid #75452f",
+                  background: "#ffffff",
+                  color: "#75452f",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                👤 Đăng nhập
+              </Link>
+              <Link
+                href="/register"
+                data-testid="menu-register-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "44px",
+                  padding: "0 14px",
+                  borderRadius: "12px",
+                  border: "1.5px solid #eadfd4",
+                  background: "#faf7f4",
+                  color: "#51483e",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                ✨ Đăng ký
+              </Link>
+            </div>
           )}
 
           <Link

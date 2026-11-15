@@ -341,10 +341,20 @@ describe('PaymentsService & SePay Sandbox Integration (FR-06 / ADR-004)', () => 
     });
   });
 
-  it('8. SepayWebhookGuard chặn request không có Apikey hợp lệ (401 Unauthorized)', () => {
+  it('8. SepayWebhookGuard cho phép No Auth (Sandbox), Apikey hợp lệ và chặn Apikey sai (401 Unauthorized)', () => {
     const guard = new SepayWebhookGuard(
       mockConfigService as unknown as ConfigService,
     );
+
+    const noAuthContext = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          headers: {},
+        }),
+      }),
+    } as never;
+
+    expect(guard.canActivate(noAuthContext)).toBe(true);
 
     const validContext = {
       switchToHttp: () => ({
@@ -371,6 +381,43 @@ describe('PaymentsService & SePay Sandbox Integration (FR-06 / ADR-004)', () => 
     expect(() => guard.canActivate(invalidContext)).toThrow(
       UnauthorizedException,
     );
+  });
+
+  it('9. Mô phỏng trên trang SePay không nhập mã BREW... vẫn tự động khớp đơn PENDING đang mở và trả về 200 OK { success: true }', async () => {
+    mockPrismaService.payment.findUnique.mockResolvedValue(null);
+    mockPrismaService.order.findUnique.mockResolvedValue(samplePendingOrder);
+    mockPrismaService.order.findMany.mockResolvedValue([samplePendingOrder]);
+
+    await service.processPayment('user-1', 'idem-sepay-sim-no-ref', {
+      orderId: samplePendingOrder.id,
+      method: PaymentMethod.WALLET,
+    });
+
+    mockTx.payment.findUnique.mockResolvedValue(null);
+    mockTx.payment.create.mockResolvedValue({
+      id: 'pay-sepay-auto-1',
+      orderId: samplePendingOrder.id,
+      idempotencyKey: 'idem-sepay-sim-no-ref',
+      amount: 88000,
+      method: PaymentMethod.WALLET,
+      status: PaymentStatus.SUCCEEDED,
+      createdAt: new Date(),
+    });
+
+    const res = await service.handleSepayWebhook({
+      id: 'sepay-sim-tx-888',
+      gateway: 'MBBank',
+      transfer_type: 'in',
+      amount_in: 88000,
+      transaction_content: 'Chuyen khoan test tren trang SePay',
+      va: null,
+      bank_account_id: '123',
+      webhook_success: 1,
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.orderId).toBe(samplePendingOrder.id);
+    expect(res.orderStatus).toBe(OrderStatus.PAID);
   });
 });
 

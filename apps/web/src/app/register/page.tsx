@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "../../store/auth.store";
@@ -9,7 +9,8 @@ import styles from "./register.module.css";
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get("redirect") || "/menu";
+  const rawRedirect = searchParams.get("redirect");
+  const redirectUrl = rawRedirect || "/menu";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,6 +24,18 @@ function RegisterForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const register = useAuthStore((state) => state.register);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const initializeAuth = useAuthStore((state) => state.initialize);
+
+  useEffect(() => {
+    void initializeAuth();
+  }, [initializeAuth]);
+
+  useEffect(() => {
+    if (isAuthenticated && !isSubmitting) {
+      router.push(redirectUrl);
+    }
+  }, [isAuthenticated, isSubmitting, redirectUrl, router]);
 
   const validate = () => {
     const errors: {
@@ -61,13 +74,22 @@ function RegisterForm() {
       return;
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
     setIsSubmitting(true);
     try {
       await register({
-        email: email.trim(),
+        email: normalizedEmail,
         password,
       });
-      router.push(redirectUrl);
+
+      const params = new URLSearchParams();
+      params.set("registered", "1");
+      params.set("email", normalizedEmail);
+      if (rawRedirect) {
+        params.set("redirect", rawRedirect);
+      }
+
+      router.push(`/login?${params.toString()}`);
     } catch (err: any) {
       setServerError(err.message || "Đăng ký không thành công, vui lòng thử lại");
     } finally {
