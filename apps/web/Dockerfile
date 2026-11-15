@@ -1,1 +1,36 @@
+FROM node:20-slim
 
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+ARG NEXT_PUBLIC_API_URL=http://localhost:4000
+ARG NEXT_PUBLIC_APP_NAME=BrewLite
+ARG NEXT_PUBLIC_VIETQR_BANK_ID=MB
+ARG NEXT_PUBLIC_VIETQR_ACCOUNT_NO=0000000001
+ARG NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=BrewLite
+ARG NEXT_PUBLIC_VIETQR_TEMPLATE=compact2
+
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
+ENV NEXT_PUBLIC_VIETQR_BANK_ID=$NEXT_PUBLIC_VIETQR_BANK_ID
+ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NO=$NEXT_PUBLIC_VIETQR_ACCOUNT_NO
+ENV NEXT_PUBLIC_VIETQR_ACCOUNT_NAME=$NEXT_PUBLIC_VIETQR_ACCOUNT_NAME
+ENV NEXT_PUBLIC_VIETQR_TEMPLATE=$NEXT_PUBLIC_VIETQR_TEMPLATE
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+
+RUN npm ci
+
+COPY apps/web apps/web
+
+RUN npm run build:web
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start", "--workspace=@brewlite/web"]
