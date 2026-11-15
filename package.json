@@ -14,7 +14,7 @@
     "build:api": "npm run build --workspace=@brewlite/api",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --config=tests/playwright.config.ts",
     "db:generate": "npm run prisma:generate --workspace=@brewlite/api",
     "db:push": "npm run prisma:push --workspace=@brewlite/api",
     "db:migrate": "npm run prisma:migrate --workspace=@brewlite/api",
@@ -30,4 +30,3 @@
     "typescript": "^5.6.3"
   }
 }
-

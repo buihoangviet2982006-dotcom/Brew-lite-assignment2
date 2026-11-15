@@ -28,6 +28,8 @@ lerna-debug.log*
 *.sqlite
 .turbo/
 coverage/
+playwright-report/
+test-results/
 
 # OS and Editor files
 .DS_Store
