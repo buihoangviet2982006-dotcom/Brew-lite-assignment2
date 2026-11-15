@@ -19,4 +19,4 @@ RUN npx prisma generate --schema=apps/api/prisma/schema.prisma \
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push --skip-generate --schema=apps/api/prisma/schema.prisma && node apps/api/dist/src/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node apps/api/dist/src/main.js"]

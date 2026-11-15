@@ -41,8 +41,8 @@ services:
       SEPAY_API_TOKEN: ${SEPAY_API_TOKEN:-}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-sepay_sandbox_secret_2026}
       VIETQR_BANK_ID: ${VIETQR_BANK_ID:-MB}
-      VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:-0123456789}
-      VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:-BREWLITE COFFEE}
+      VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:-0000000001}
+      VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:-BrewLite}
       VIETQR_TEMPLATE: ${VIETQR_TEMPLATE:-compact2}
     depends_on:
       postgres:
@@ -50,7 +50,7 @@ services:
     networks:
       - brewlite2_net
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/products >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/health >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -66,16 +66,30 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-BrewLite}
+        NEXT_PUBLIC_VIETQR_BANK_ID: ${VIETQR_BANK_ID:-MB}
+        NEXT_PUBLIC_VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:-0000000001}
+        NEXT_PUBLIC_VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:-BrewLite}
+        NEXT_PUBLIC_VIETQR_TEMPLATE: ${VIETQR_TEMPLATE:-compact2}
     ports:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-BrewLite}
+      NEXT_PUBLIC_VIETQR_BANK_ID: ${VIETQR_BANK_ID:-MB}
+      NEXT_PUBLIC_VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:-0000000001}
+      NEXT_PUBLIC_VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:-BrewLite}
+      NEXT_PUBLIC_VIETQR_TEMPLATE: ${VIETQR_TEMPLATE:-compact2}
     depends_on:
       api:
         condition: service_healthy
     networks:
       - brewlite2_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/menu >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 networks:
   brewlite2_net:
