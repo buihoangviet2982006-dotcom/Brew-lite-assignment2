@@ -11,6 +11,7 @@ import {
   calculateCartTotalCount,
   useCartStore,
 } from "../../store/cart.store";
+import { useAuthStore } from "../../store/auth.store";
 import type { Product } from "../../types/product";
 import styles from "./menu.module.css";
 
@@ -26,9 +27,15 @@ export default function MenuPage() {
   const cartItems = useCartStore((state) => state.items);
   const cartCount = hydrated ? calculateCartTotalCount(cartItems) : 0;
 
+  const user = useAuthStore((state) => state.user);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const initializeAuth = useAuthStore((state) => state.initialize);
+  const logout = useAuthStore((state) => state.logout);
+
   useEffect(() => {
     setHydrated(true);
-  }, []);
+    void initializeAuth();
+  }, [initializeAuth]);
 
   const loadProducts = useCallback(async (isRetry = false) => {
     try {
@@ -101,39 +108,85 @@ export default function MenuPage() {
           </p>
         </div>
 
-        <Link
-          href="/cart"
-          data-testid="menu-cart-link"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            minHeight: "44px",
-            padding: "0 16px",
-            borderRadius: "12px",
-            background: "#75452f",
-            color: "#ffffff",
-            fontSize: "14px",
-            fontWeight: 700,
-            textDecoration: "none",
-            flexShrink: 0,
-          }}
-        >
-          <span>🛒 Giỏ hàng</span>
-          <span
-            data-testid="menu-cart-count"
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {hydrated && isAuthenticated && user ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "13px", color: "#61473b", fontWeight: 600 }}>
+                Hi, {user.email.split("@")[0]} ({user.loyaltyPoints} điểm)
+              </span>
+              <button
+                onClick={logout}
+                style={{
+                  minHeight: "36px",
+                  padding: "0 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #c2b2a8",
+                  background: "transparent",
+                  color: "#61473b",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Đăng xuất
+              </button>
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              data-testid="menu-login-link"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                minHeight: "44px",
+                padding: "0 14px",
+                borderRadius: "12px",
+                border: "1.5px solid #75452f",
+                background: "#ffffff",
+                color: "#75452f",
+                fontSize: "14px",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              👤 Đăng nhập
+            </Link>
+          )}
+
+          <Link
+            href="/cart"
+            data-testid="menu-cart-link"
             style={{
-              padding: "2px 8px",
-              borderRadius: "999px",
-              background: "#ffffff",
-              color: "#75452f",
-              fontSize: "12px",
-              fontWeight: 800,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              minHeight: "44px",
+              padding: "0 16px",
+              borderRadius: "12px",
+              background: "#75452f",
+              color: "#ffffff",
+              fontSize: "14px",
+              fontWeight: 700,
+              textDecoration: "none",
+              flexShrink: 0,
             }}
           >
-            {cartCount}
-          </span>
-        </Link>
+            <span>🛒 Giỏ hàng</span>
+            <span
+              data-testid="menu-cart-count"
+              style={{
+                padding: "2px 8px",
+                borderRadius: "999px",
+                background: "#ffffff",
+                color: "#75452f",
+                fontSize: "12px",
+                fontWeight: 800,
+              }}
+            >
+              {cartCount}
+            </span>
+          </Link>
+        </div>
       </header>
 
       <section className={styles.searchSection}>
