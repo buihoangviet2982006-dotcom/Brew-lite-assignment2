@@ -196,7 +196,7 @@ describe('AuthModule (Integration)', () => {
   describe('GET /auth/me & Protected Route (NFR-02)', () => {
     it('should reject access to protected endpoint without valid user in JwtAuthGuard (401 Unauthorized)', () => {
       const guard = new JwtAuthGuard();
-      expect(() => guard.handleRequest(null, null, null, {} as any)).toThrow(
+      expect(() => guard.handleRequest(null, null, null)).toThrow(
         UnauthorizedException,
       );
     });
