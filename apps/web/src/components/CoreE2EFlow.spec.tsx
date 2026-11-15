@@ -15,6 +15,7 @@ import * as orderApi from "../lib/order-api";
 import * as paymentApi from "../lib/payment-api";
 import { useCartStore } from "../store/cart.store";
 import { useAuthStore } from "../store/auth.store";
+import type { OrderDetailResponse } from "../types/order";
 
 // Mock Next.js navigation (router, searchParams, params)
 const mockPush = vi.fn();
@@ -464,7 +465,7 @@ describe("Core End-to-End Flow trên Frontend (6 Bước Xuyên Suốt: Menu -> 
     // BƯỚC 6: XÁC NHẬN CHI TIẾT ĐƠN HÀNG (/orders/:id) & LỊCH SỬ ĐƠN (/orders)
     // =========================================================================
     mockRouteParams = { id: "ord-e2e-999" };
-    const mockOrderDetail: orderApi.OrderDetailResponse = {
+    const mockOrderDetail: OrderDetailResponse = {
       id: "ord-e2e-999",
       orderId: "ord-e2e-999",
       userId: "user-e2e-1",

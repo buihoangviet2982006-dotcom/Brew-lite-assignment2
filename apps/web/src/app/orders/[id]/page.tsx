@@ -463,7 +463,7 @@ export default function OrderDetailPage() {
             payment={activeQrPayment}
             token={getStoredAccessToken() || ""}
             onClose={() => setActiveQrPayment(null)}
-            onPaymentSuccess={() => {
+            onPaymentSucceeded={() => {
               setActiveQrPayment(null);
               void loadOrder();
             }}

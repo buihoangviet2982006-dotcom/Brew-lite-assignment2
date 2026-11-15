@@ -494,7 +494,7 @@ export default function OrderHistoryPage() {
             payment={activeQrPayment}
             token={getStoredAccessToken() || ""}
             onClose={() => setActiveQrPayment(null)}
-            onPaymentSuccess={() => {
+            onPaymentSucceeded={() => {
               setActiveQrPayment(null);
               void loadOrders();
             }}
