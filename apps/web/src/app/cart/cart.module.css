@@ -1,0 +1,268 @@
+.container {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+  background: #faf7f2;
+  color: #34251f;
+}
+
+.wrapper {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #e3ded6;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #75452f;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.clearAllBtn {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff5f5;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.brand {
+  color: #9b623d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 3px;
+}
+
+.title {
+  margin: 6px 0 6px;
+  font-size: 26px;
+  line-height: 1.25;
+}
+
+.subtitle {
+  margin: 0 0 24px;
+  color: #81736c;
+  font-size: 14px;
+}
+
+.card {
+  margin-bottom: 18px;
+  padding: 20px 16px;
+  border: 1px solid #eadfd4;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 3px 12px rgba(60, 40, 25, 0.05);
+}
+
+.emptyBox {
+  padding: 48px 20px;
+  text-align: center;
+}
+
+.emptyIcon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.itemList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.itemRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #f0e6dd;
+  border-radius: 14px;
+  background: #fdfbf9;
+}
+
+.itemThumb {
+  width: 68px;
+  height: 68px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #f0e9df;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemName {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #34251f;
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.sizeBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f4efe8;
+  color: #75452f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metaText {
+  margin: 2px 0;
+  font-size: 13px;
+  color: #6b5e56;
+  line-height: 1.45;
+}
+
+.noteText {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #795638;
+  font-style: italic;
+}
+
+.itemActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.lineTotal {
+  font-size: 16px;
+  font-weight: 800;
+  color: #75452f;
+}
+
+.qtyControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qtyBtn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d9c8ba;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #34251f;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.qtyBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.removeBtn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: #604b40;
+}
+
+.summaryTotal {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px dashed #d9c8ba;
+  font-size: 18px;
+  font-weight: 800;
+  color: #34251f;
+}
+
+.primaryButton {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  background: #75452f;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid #75452f;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #75452f;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+@media (min-width: 600px) {
+  .container {
+    padding: 32px 24px 64px;
+  }
+
+  .card {
+    padding: 24px;
+  }
+}

@@ -48,6 +48,17 @@ describe('ProductsService', () => {
       findMany: jest.fn().mockResolvedValue(mockProductList),
       findUnique: jest.fn(),
     },
+    topping: {
+      findMany: jest.fn().mockResolvedValue([
+        {
+          id: 'top-1',
+          name: 'Trân châu đường đen dẻo',
+          price: 10000 as any,
+          imageUrl: '',
+          isAvailable: true,
+        },
+      ]),
+    },
   };
 
   beforeEach(async () => {
@@ -195,6 +206,21 @@ describe('ProductsService', () => {
       mockPrismaService.product.findUnique.mockResolvedValueOnce(null);
 
       await expect(service.findOne('non-existent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findAllToppings', () => {
+    it('should return list of toppings with numeric price', async () => {
+      const result = await service.findAllToppings();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        id: 'top-1',
+        name: 'Trân châu đường đen dẻo',
+        price: 10000,
+        imageUrl: '',
+        isAvailable: true,
+      });
     });
   });
 });

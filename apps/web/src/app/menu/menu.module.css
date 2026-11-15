@@ -122,6 +122,83 @@
   margin-top: 12px;
 }
 
+.cartSection {
+  margin-top: 36px;
+  padding: 20px;
+  border: 1px solid #e5d9cf;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.cartEmpty {
+  margin: 0;
+  color: #81736c;
+}
+
+.cartList {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cartItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee5de;
+}
+
+.cartProduct {
+  display: grid;
+  gap: 4px;
+}
+
+.cartProduct span {
+  color: #81736c;
+  font-size: 14px;
+}
+
+.quantityControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quantityControls button,
+.removeButton {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid #d9c8ba;
+  border-radius: 8px;
+  background: #fff;
+  color: #604b40;
+  font: inherit;
+  cursor: pointer;
+}
+
+.quantityControls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.removeButton {
+  padding: 0 10px;
+}
+
+.cartTotal {
+  margin: 16px 0 0;
+  text-align: right;
+  font-size: 18px;
+}
+
+.cartTotal strong {
+  color: #75452f;
+}
+
 .sectionHeading {
   display: flex;
   align-items: center;
@@ -207,6 +284,17 @@
   .productGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 22px;
+  }
+}
+
+@media (max-width: 480px) {
+  .cartItem {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .cartItem > strong,
+  .removeButton {
+    justify-self: end;
   }
 }
 

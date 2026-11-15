@@ -1,0 +1,30 @@
+# Dependencies & Build outputs
+**/node_modules
+**/dist
+**/.next
+**/out
+**/coverage
+.turbo
+
+# Git & CI/CD
+.git
+.gitignore
+.github
+
+# Environment secrets (Security)
+.env
+.env.*
+!.env.example
+
+# Docs, Tests & IDE
+docs
+tests
+playwright-report
+test-results
+*.md
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*

@@ -203,4 +203,29 @@ describe('MenuPage Component & Main Flow (Task 4.3 MVP Sprint 1)', () => {
     expect(container.textContent).toContain('Cà phê Sữa Đá');
     expect(container.textContent).not.toContain('Trà Đào Cam Sả');
   });
+
+  it('7. Giỏ hàng tách riêng khỏi trang Menu: có badge Giỏ hàng trỏ về /cart và nút Chọn món trỏ về /menu/[id]', async () => {
+    vi.mocked(productApi.getProducts).mockResolvedValueOnce(mockProducts);
+
+    await act(async () => {
+      root.render(<MenuPage />);
+    });
+
+    // Không còn phần giỏ hàng nhúng trực tiếp ở cuối trang menu
+    expect(container.querySelector('[data-testid="cart-total"]')).toBeNull();
+
+    // Có nút Giỏ hàng trên header trỏ sang /cart
+    const cartLink = container.querySelector(
+      '[data-testid="menu-cart-link"]'
+    ) as HTMLAnchorElement;
+    expect(cartLink).not.toBeNull();
+    expect(cartLink.getAttribute('href')).toBe('/cart');
+
+    // Nút Chọn món của sản phẩm còn hàng trỏ sang /menu/prod-1
+    const selectLink = container.querySelector(
+      '[data-testid="select-product-prod-1"]'
+    ) as HTMLAnchorElement;
+    expect(selectLink).not.toBeNull();
+    expect(selectLink.getAttribute('href')).toBe('/menu/prod-1');
+  });
 });

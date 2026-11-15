@@ -1,11 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import ProductCard from "../../components/menu/ProductCard";
 import { MenuSkeleton } from "../../components/ui/MenuSkeleton";
 import { EmptyState } from "../../components/ui/EmptySate";
 import { ErrorAlert } from "../../components/ui/ErrorAlert";
 import { getProducts } from "../../lib/product-api";
+import {
+  calculateCartTotalCount,
+  useCartStore,
+} from "../../store/cart.store";
+import { useAuthStore } from "../../store/auth.store";
 import type { Product } from "../../types/product";
 import styles from "./menu.module.css";
 
@@ -16,6 +22,20 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  const cartItems = useCartStore((state) => state.items);
+  const cartCount = hydrated ? calculateCartTotalCount(cartItems) : 0;
+
+  const user = useAuthStore((state) => state.user);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const initializeAuth = useAuthStore((state) => state.initialize);
+  const logout = useAuthStore((state) => state.logout);
+
+  useEffect(() => {
+    setHydrated(true);
+    void initializeAuth();
+  }, [initializeAuth]);
 
   const loadProducts = useCallback(async (isRetry = false) => {
     try {
@@ -84,12 +104,129 @@ export default function MenuPage() {
           <span className={styles.brand}>BREWLITE</span>
           <h1 className={styles.title}>Menu của chúng tôi</h1>
           <p className={styles.subtitle}>
-            Chọn thức uống yêu thích của bạn
+            Chọn thức uống yêu thích và tùy chỉnh Size, Topping riêng cho bạn
           </p>
         </div>
 
-        <div className={styles.avatar} aria-label="BrewLite">
-          B
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {hydrated && isAuthenticated && user ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "13px", color: "#61473b", fontWeight: 600 }}>
+                Hi, {user.email.split("@")[0]} ({user.loyaltyPoints} điểm)
+              </span>
+              <Link
+                href="/orders"
+                data-testid="menu-orders-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "36px",
+                  padding: "0 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #75452f",
+                  background: "#ffffff",
+                  color: "#75452f",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                📦 Đơn hàng
+              </Link>
+              <button
+                onClick={logout}
+                data-testid="menu-logout-btn"
+                style={{
+                  minHeight: "36px",
+                  padding: "0 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #c2b2a8",
+                  background: "transparent",
+                  color: "#61473b",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Đăng xuất
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Link
+                href="/login"
+                data-testid="menu-login-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "44px",
+                  padding: "0 14px",
+                  borderRadius: "12px",
+                  border: "1.5px solid #75452f",
+                  background: "#ffffff",
+                  color: "#75452f",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                👤 Đăng nhập
+              </Link>
+              <Link
+                href="/register"
+                data-testid="menu-register-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  minHeight: "44px",
+                  padding: "0 14px",
+                  borderRadius: "12px",
+                  border: "1.5px solid #eadfd4",
+                  background: "#faf7f4",
+                  color: "#51483e",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                ✨ Đăng ký
+              </Link>
+            </div>
+          )}
+
+          <Link
+            href="/cart"
+            data-testid="menu-cart-link"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              minHeight: "44px",
+              padding: "0 16px",
+              borderRadius: "12px",
+              background: "#75452f",
+              color: "#ffffff",
+              fontSize: "14px",
+              fontWeight: 700,
+              textDecoration: "none",
+              flexShrink: 0,
+            }}
+          >
+            <span>🛒 Giỏ hàng</span>
+            <span
+              data-testid="menu-cart-count"
+              style={{
+                padding: "2px 8px",
+                borderRadius: "999px",
+                background: "#ffffff",
+                color: "#75452f",
+                fontSize: "12px",
+                fontWeight: 800,
+              }}
+            >
+              {cartCount}
+            </span>
+          </Link>
         </div>
       </header>
 
@@ -141,18 +278,15 @@ export default function MenuPage() {
           )}
         </div>
 
-        {/* 1. Trạng thái Đang tải: Gọi MenuSkeleton của TV6 */}
         {loading ? (
           <MenuSkeleton count={6} />
         ) : error ? (
-          /* 2. Trạng thái Báo lỗi: Gọi ErrorAlert của TV6 */
           <ErrorAlert
             message={error}
             isRetrying={isRetrying}
             onRetry={() => void loadProducts(true)}
           />
         ) : filteredProducts.length === 0 ? (
-          /* 3. Trạng thái Danh sách trống: Gọi EmptyState của TV6 */
           <EmptyState
             message={
               products.length === 0
@@ -175,13 +309,9 @@ export default function MenuPage() {
             }}
           />
         ) : (
-          /* 4. Trạng thái Thành công: Danh sách món */
           <div className={styles.productGrid}>
             {filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-              />
+              <ProductCard key={product.id} product={product} />
             ))}
           </div>
         )}
